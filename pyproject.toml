@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "deepInsight"
+version = "0.1.0"
+description = ""
+readme = "README.md"
+packages = [{include = "deepinsight", from = '.'}]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.13"
+camel-ai = ">=0.2.60"
+pydantic = ">=2.10.6"
+rich = ">=14.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "*"
