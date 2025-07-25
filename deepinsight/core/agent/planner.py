@@ -1,93 +1,289 @@
-"""
-Copyright (c) 2025-2025 Huawei Technologies Co., Ltd.
-
-deepInsight is licensed under Mulan PSL v2.
-You can use this software according to the terms and conditions of the Mulan PSL v2.
-You may obtain a copy of Mulan PSL v2 at:
-    http://license.coscl.org.cn/MulanPSL2
-THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FIT FOR A PARTICULAR
-PURPOSE.
-See the Mulan PSL v2 for more details.
-Created: 2025-07-25
-Desc: 生成研究计划Agent
-"""
-
+# Copyright (c) 2025 Huawei Technologies Co. Ltd.
+# deepinsight is licensed under Mulan PSL v2.
+# You can use this software according to the terms and conditions of the Mulan PSL v2.
+# You may obtain a copy of Mulan PSL v2 at:
+#          http://license.coscl.org.cn/MulanPSL2
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+# EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+# MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+# See the Mulan PSL v2 for more details.
 from __future__ import annotations
 
-import asyncio
-import json
-from typing import Any, Dict, List
+import logging
+import re
+from copy import deepcopy
+from enum import Enum
+from typing import Any, Dict, List, Optional, TypeAlias, Callable
 
+from camel.responses import ChatAgentResponse
 from pydantic import BaseModel, Field
+from typing_extensions import override
 
-from .base_agent import BaseAgent
+from deepinsight.core.agent.base_agent import BaseAgent
+from deepinsight.config.model import ModelConfig
+from deepinsight.core.prompt.prompt_template import GLOBAL_DEFAULT_PROMPT_REPOSITORY, PromptStage
 
 
-class PlannerAgent(BaseAgent):
-    """调研计划生成器：输入问题 → 输出 Plan"""
+class NotSupportStreamException(Exception):
+    """Exception raised when streaming is not supported by the current agent configuration."""
+    pass
 
-    # ---------- 输出结构 ----------
-    class ResearchStep(BaseModel):
-        step_number: int
-        description: str
-        expected_output: str
-        tools: List[str] = Field(default_factory=list)
 
-    class Plan(BaseModel):
-        goal: str
-        steps: List[ResearchStep]
+class NoPlanException(Exception):
+    """Exception raised when want to research but no valid plan."""
+    pass
 
-    # ---------- 1. system prompt ----------
+
+class SearchPlan(BaseModel):
+    """
+    A data model representing a research search plan.
+
+    This class defines the structure for storing and validating information about
+    a research plan, including its title, description, and original plan content.
+    Inherits from Pydantic's BaseModel for data validation and serialization.
+    """
+
+    title: str
+    """
+    The title or name of the research plan.
+
+    Attributes:
+        str: A concise, descriptive title that summarizes the research focus.
+        Required field (no default value).
+    Example:
+        "Optimizing Transformer Models for Edge Devices"
+    """
+
+    description: str = ""
+    """
+    Detailed description of the research plan.
+
+    Attributes:
+        str: A comprehensive explanation of the research objectives, scope, and methodology.
+        Optional field (defaults to empty string if not provided).
+    Example:
+        "This plan explores quantization and pruning techniques to reduce transformer model size..."
+    """
+
+    origin_plan: str
+    """
+    The original, unmodified version of the research plan.
+
+    Attributes:
+        str: Contains the complete text of the initial research plan before any modifications.
+        Serves as a reference point for tracking changes during plan iterations.
+        Required field (no default value).
+    Example:
+        "1. Literature review on model compression techniques\n2. Implement baseline transformer model..."
+    """
+
+
+class PlanStatus(str, Enum):
+    """Enum representing possible plan statuses"""
+    DRAFT = "draft"
+    FINALIZED = "finalized"
+    REJECTED = "rejected"
+    INCOMPLETE_INFO = "incomplete_info"  # Missing information cases, need supply
+
+
+class PlanResult(BaseModel):
+    """
+    Result container for multi-alternative planning operations.
+    Represents multiple plan alternatives generated for a single user query.
+    """
+
+    search_plans: Optional[List[SearchPlan]] = Field(default=None)
+    """
+    Alternative plans generated for the same research question.
+
+    Attributes:
+        Optional[List[SearchPlan]]: 
+            ▪ None when need additional info needed
+
+            ▪ Contains parallel alternative approaches to the same problem
+
+            ▪ Each plan represents a complete, independent solution
+
+            ▪ Ordered by recommended priority (index 0 is most recommended)
+
+
+    Example:
+        [
+            SearchPlan(title="Quantization Approach", ...),
+            SearchPlan(title="Pruning Approach", ...),
+            SearchPlan(title="Architecture Search Approach", ...)
+        ]
+    """
+
+    status: PlanStatus = PlanStatus.DRAFT
+    """
+    Current state of the planning process.
+
+    Attributes:
+        PlanStatus:
+            ▪ DRAFT: Initial state, alternatives being considered
+
+            ▪ FINALIZED: Plan selected and ready for execution
+
+            ▪ REJECTED: All alternatives rejected
+
+
+    Example:
+        PlanStatus.FINALIZED
+    """
+
+    information_required: Optional[str] = Field(default=None)
+    """
+    Specific information needed from user when status=INCOMPLETE_INFO.
+
+    Attributes:
+        Optional[str]:
+            ▪ None when no additional info needed
+            ▪ Str of specific questions/requirements when status=INCOMPLETE_INFO
+            ▪ Should be a clear, actionable prompt for the user
+
+
+    Example:
+        What is the target deployment platform? Are there any latency constraints?
+    """
+
+    @property
+    def requires_user_input(self) -> bool:
+        """Convenience property to check if additional information is needed"""
+        return self.status == PlanStatus.INCOMPLETE_INFO and bool(self.information_required)
+
+
+# Type alias for plan parser functions
+PlanParser: TypeAlias = Callable[[str], PlanResult]
+
+
+class Planner(BaseAgent[PlanResult]):
+    """
+    Specialized agent for generating and managing research plans.
+
+    Inherits from BaseAgent with PlanResult as the concrete output type.
+    Handles the full lifecycle of research plan creation and modification.
+    """
+    def __init__(
+            self,
+            model_config: ModelConfig,
+            mcp_tools_config_path: Optional[str] = None,
+            mcp_client_timeout: Optional[int] = None,
+            plan_parser: PlanParser = None,
+            current_plan: Optional[str] = None,
+            current_search_plan: Optional[str] = None,
+    ) -> None:
+        """
+        Initialize the Planner agent with configuration and optional dependencies.
+
+        Args:
+            model_config: Configuration for the AI model
+            mcp_tools_config_path: Path to MCP tools configuration
+            mcp_client_timeout: Timeout for MCP client operations
+            plan_parser: Custom parser for plan responses (defaults to built-in)
+            current_plan: Current active plan (if continuing previous work)
+            current_search_plan: Current search plan context
+        """
+        super().__init__(model_config, mcp_tools_config_path, mcp_client_timeout)
+        self.plan_parser = plan_parser or self._default_plan_parser
+        self.current_plan = current_plan
+        self.history_plans: List[PlanResult] = []
+        self.current_search_plan = current_search_plan
+
+    @override
     def build_system_prompt(self) -> str:
-        return (
-            "你是资深研究策划师。你的唯一职责是把用户问题拆解成"
-            "可执行的调研步骤，并用合法 JSON 输出计划。"
+        return GLOBAL_DEFAULT_PROMPT_REPOSITORY.get_prompt(PromptStage.PLAN_SYSTEM)
+
+    @override
+    def build_user_prompt(
+            self,
+            *,
+            query: str,
+            context: Dict[str, Any] | None = None,
+    ) -> str:
+        return GLOBAL_DEFAULT_PROMPT_REPOSITORY.get_prompt(
+            stage=PromptStage.PLAN_USER, variables=dict(
+                query=query,
+                current_search_plan=self.current_search_plan,
+                **context if context is not None else {},
+            )
         )
 
-    # ---------- 2. user prompt ----------
-    def build_user_prompt(
-        self,
-        *,
-        query: str,
-        context: Dict[str, Any] | None = None,
-    ) -> str:
-        ctx = "\n".join(f"{k}: {v}" for k, v in (context or {}).items())
-        return f"""{ctx}
+    @override
+    def parse_output(self, response: ChatAgentResponse) -> PlanResult:
+        if self.plan_parser is not None:
+            return self.plan_parser(response.msg.content)
+        return self._default_plan_parser(response.msg.content)
 
-请根据以下问题生成调研计划，JSON 格式：
-{{
-  "goal": "<调研目标>",
-  "steps": [
-    {{
-      "step_number": 1,
-      "description": "<步骤描述>",
-      "expected_output": "<预期输出>",
-      "tools": ["<可能用到的工具名>", "..."]
-    }}
-  ]
-}}
+    def _default_plan_parser(self, full_response: str) -> PlanResult:
+        """
+        Default parser for converting LLM responses to PlanResult objects.
 
-问题：{query}"""
+        Handles multiple response formats:
+        - Information requests
+        - Plan finalization
+        - New plan generation
 
-    # ---------- 3. MCP 连接 ----------
-    # 复用父类 connect_mcp，无需改动
+        Args:
+            full_response: Complete LLM response string
 
-    # ---------- 4. 输出解析 ----------
-    async def parse_output(self, raw: str) -> Plan:
-        """把 LLM 返回的 JSON 解析成 Plan 对象"""
-        try:
-            return self.Plan(**json.loads(raw))
-        except Exception as e:
-            # 简易容错：抛异常或再次让 LLM 修正
-            raise ValueError(f"JSON 解析失败：{e}") from e
+        Returns:
+            PlanResult: Parsed plan information
 
-    # ---------- 业务快捷入口 ----------
-    async def generate_plan(
-        self,
-        query: str,
-        context: Dict[str, Any] | None = None,
-    ) -> Plan:
-        """外部直接调用"""
-        plan_json = await self.run(query=query, context=context)
-        return await self.parse_output(plan_json)
+        Raises:
+            NoPlanException: If attempting to finalize without history
+        """
+        # Need more information
+        if not full_response.startswith("开始研究") and (
+                '<plan>' not in full_response or '</plan>' not in full_response):
+            return PlanResult(
+                status=PlanStatus.INCOMPLETE_INFO,
+                information_required=full_response
+            )
+
+        if full_response.startswith("开始研究"):
+            # If need start research
+            if not self.history_plans:
+                raise NoPlanException("History plan is empty")
+            final_plan = deepcopy(self.history_plans[-1])
+            final_plan.status = PlanStatus.FINALIZED
+            return final_plan
+        else:
+            # Has generate or modify a plan
+            pattern = r'<plan>(.*?)</plan>'
+            try:
+                plan_content_search = re.search(pattern, full_response, re.DOTALL)
+                if plan_content_search:
+                    plan_content = plan_content_search.group(1)
+                else:
+                    plan_content = full_response
+            except Exception as e:
+                logging.warning(f"Parse plan error {e}")
+                plan_content = full_response
+            search_plans = []
+            line_steps = plan_content.split("\n")
+            for i, step in enumerate(line_steps):
+                step = step.strip()
+                if step:
+                    search_step_title = step
+                    search_step_description = ""
+                    splitted = re.split(r"[：:]", step, maxsplit=1)  # 匹配中文或英文冒号
+                    if len(splitted) == 2:
+                        try:
+                            search_step_title = re.search(r'\*\*（\d+）(.+?)\*\*', splitted[0]).group(1)
+                        except Exception:
+                            search_step_title = splitted[0]
+
+                        search_step_description = splitted[1]
+                    search_plans.append(
+                        SearchPlan(
+                            title=search_step_title,
+                            description=search_step_description,
+                            origin_plan=step)
+                    )
+            plan_result = PlanResult(
+                search_plans=search_plans,
+                status=PlanStatus.DRAFT,
+            )
+            return plan_result
+

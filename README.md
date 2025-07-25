@@ -19,14 +19,29 @@ DeepInsight采用多Agent架构，通过多种不同角色Agent协作，提升�
 
 ## 快速上手
 
-### 启动后端服务
+### 方式一：命令行运行
+1. 安装依赖
+```commandline
+poetry install pyptoject.toml
+export DEEPSEEK_API_KEY=<YOUR-DEEPSEEK_API_KEY>
+cp mcp_config.example.json mcp_config.json
+```
+2. 在`mcp_config.json`填写`TAVILY_API_KEY`
+3. 运行
+```commandline
+python deepinsight/app.py "<YOUR-QUERY>" --output output
+```
+
+### 方式二：Web方式运行
+
+#### 启动后端服务
 
 ```
 poetry install pyptoject.toml
 python deepinsight/app.py
 ```
 
-### 启动前端服务
+#### 启动前端服务
 ``` 
 cd web
 npm install
