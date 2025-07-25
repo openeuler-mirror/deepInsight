@@ -25,7 +25,7 @@ from openai.types.chat.chat_completion_chunk import ChoiceDelta
 from openai.types.chat.chat_completion_message_tool_call import Function
 from pydantic import BaseModel
 
-from deepinsight.core.messages import Message, CompleteMessage, StartMessage, EndMessage, ChunkMessage
+from deepinsight.core.types.messages import Message, CompleteMessage, StartMessage, EndMessage, ChunkMessage
 
 logger = logging.getLogger(__name__)
 

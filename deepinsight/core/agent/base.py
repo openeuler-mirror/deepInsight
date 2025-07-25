@@ -18,12 +18,12 @@ from camel.toolkits import MCPToolkit
 
 from deepinsight.config.model import ModelConfig
 from deepinsight.core.agent.stream_chat_agent import StreamChatAgent
-from deepinsight.core.messages import Message
+from deepinsight.core.types.messages import Message
 from deepinsight.utils.aio import get_or_create_loop
 
-Output_Type = TypeVar("Output_Type")
+OutputType = TypeVar("OutputType")
 
-class BaseAgent(ABC, Generic[Output_Type]):
+class BaseAgent(ABC, Generic[OutputType]):
     """
     Minimalist BaseAgent class that handles four core responsibilities:
     1. Building system prompts
@@ -121,7 +121,7 @@ class BaseAgent(ABC, Generic[Output_Type]):
             )
             loop.run_until_complete(self.mcp_toolkit_instance.connect())
 
-    def parse_output(self, response: ChatAgentResponse) -> Output_Type:
+    def parse_output(self, response: ChatAgentResponse) -> OutputType:
         """
         Parse and transform the raw LLM response.
 
@@ -143,7 +143,7 @@ class BaseAgent(ABC, Generic[Output_Type]):
             self,
             query: str,
             context: Dict[str, Any] | None = None,
-    ) -> Generator[Message, None, Output_Type]:
+    ) -> Generator[Message, None, OutputType]:
         """
         Execute the full agent workflow.
 
@@ -166,4 +166,18 @@ class BaseAgent(ABC, Generic[Output_Type]):
             response = yield from self.agent.stream_step(prompt)
         else:
             response = self.agent.step(prompt)
-        return self.parse_output(response)
+        output = self.parse_output(response)
+        self.post_run(output)
+        return output
+
+    def post_run(self, output: OutputType) -> None:
+        """
+        Post-processing hook that is called after run() completes successfully.
+
+        This method does not modify the output, but allows subclasses to perform
+        additional operations after the main execution is done.
+
+        Args:
+            output: The output from run() method
+        """
+        pass

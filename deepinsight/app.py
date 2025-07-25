@@ -13,17 +13,18 @@ from pathlib import Path
 from camel.types import ModelPlatformType, ModelType
 
 from deepinsight.config.model import ModelConfig
-from deepinsight.core.orchestration import Orchestration, OrchestrationArtifact
+from deepinsight.core.orchestrator import Orchestrator, OrchestratorResult
 from deepinsight.utils.console_utils import display_stream
 
 
-def save_artifact(output_dir: Path, data: OrchestrationArtifact) -> None:
+def save_artifact(output_dir: Path, data: OrchestratorResult) -> None:
     """Save research artifacts to files"""
     output_dir.mkdir(exist_ok=True)
 
     # Example saving logic
     if data.report:
         (output_dir / 'report.md').write_text(data.report)
+        print(f"\nArtifacts saved to: {output_dir.absolute()}")
 
 
 def main():
@@ -54,7 +55,7 @@ def main():
     print(f"\n🚀 Starting research: {args.query}")
 
     try:
-        orchestration = Orchestration(
+        orchestration = Orchestrator(
             model_config=ModelConfig(
                 model_platform=ModelPlatformType.DEEPSEEK,
                 model_type=ModelType.DEEPSEEK_CHAT,
@@ -65,13 +66,45 @@ def main():
             mcp_tools_config_path="./mcp_config.json",
             research_round_limit=1,
         )
-        result: OrchestrationArtifact = display_stream(orchestration.run(args.query))
+        result: OrchestratorResult = display_stream(orchestration.run(args.query))
+
+        # Handle interactive states
+        while result.require_user_interactive:
+            if result.require_user_feedback:
+                # Case 1: Need specific user response
+                print("\n\n📝 I need more additional information:")
+                print(f"❓ {result.require_user_feedback}")
+                user_response = input("💬 Your response: ")
+
+                # Continue orchestration with user input
+                result = display_stream(orchestration.run(user_response))
+
+            elif result.plan_draft:
+                # Case 2: Present draft for user modification/approval
+                print("\n\n📋 Research Plan Draft:")
+                print(result.plan_draft)
+                print("\nOptions:")
+                print("1. Edit draft before continuing (direct tell me how to edit it)")
+                print("2. Approve and start research")
+                print("3. Cancel research")
+
+                choice = input("Select option (1-3): ")
+
+                if choice == "1":
+                    edited_draft = input("Enter your modified draft:\n")
+                    result = display_stream(orchestration.run(edited_draft))
+                elif choice == "2":
+                    result = display_stream(orchestration.run("开始研究"))
+                else:
+                    raise KeyboardInterrupt()
+
+        # Final output handling
         if args.output:
             save_artifact(args.output, result)
-        print("\n🔍 Research Completed!")
 
-        if args.output:
-            print(f"\nArtifacts saved to: {args.output.absolute()}")
+        if result.report:
+            print("\n🔍 Research Completed!")
+            print(f"📄 Final Report:\n{result.report}")
 
     except KeyboardInterrupt:
         print("\nResearch cancelled by user")

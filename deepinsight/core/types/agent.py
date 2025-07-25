@@ -7,3 +7,10 @@
 # EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
 # MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
 # See the Mulan PSL v2 for more details.
+from enum import Enum
+
+
+class AgentType(str, Enum):
+    PLANNER = "planner"
+    RESEARCHER = "researcher"
+    REPORTER = "reporter"

@@ -7,3 +7,20 @@
 # EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
 # MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
 # See the Mulan PSL v2 for more details.
+from datetime import datetime
+from enum import Enum
+
+from pydantic import BaseModel
+
+
+class HistoricalMessageType(str, Enum):
+    USER = "user"
+    RESEARCH_PLAN = "research_plan"
+
+
+class HistoricalMessage(BaseModel):
+    """Represents a single historical message from the database"""
+    content: str
+    type: HistoricalMessageType
+    created_time: datetime
+    message_id: str

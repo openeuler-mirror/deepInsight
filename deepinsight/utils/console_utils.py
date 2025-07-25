@@ -11,6 +11,7 @@ import sys
 from typing import Any
 from typing import Generator
 
+from camel.types.agents import ToolCallingRecord
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
@@ -18,7 +19,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.text import Text
 from rich.theme import Theme
 
-from deepinsight.core.messages import Message, StartMessage, ChunkMessage, \
+from deepinsight.core.types.messages import Message, StartMessage, ChunkMessage, \
     EndMessage, ErrorMessage, HeartbeatMessage, CompleteMessage
 
 custom_theme = Theme({
@@ -126,13 +127,22 @@ def display_stream(generator: Generator[Message, None, Any]):
                     progress.update(task_id, description=f"[cyan]Heartbeat received{latency_info}")
 
                 elif isinstance(message, CompleteMessage):
-                    console.print(
-                        Panel.fit(
-                            f"[non_stream]{message.payload}[/]",
-                            title="Non-stream Response",
-                            border_style="non_stream",
+                    if isinstance(message.payload, ToolCallingRecord):
+                        console.print(
+                            Panel.fit(
+                                f"[non_stream]{message.payload.result}[/]",
+                                title=f"Tool call {message.payload.tool_name} Response",
+                                border_style="non_stream",
+                            )
                         )
-                    )
+                    else:
+                        console.print(
+                            Panel.fit(
+                                f"[non_stream]{message.payload}[/]",
+                                title="Non stream Response",
+                                border_style="non_stream",
+                            )
+                        )
         except StopIteration as e:
             result = e.value
     return result

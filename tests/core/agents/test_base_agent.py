@@ -12,12 +12,12 @@ import unittest
 import uuid
 from unittest.mock import patch, MagicMock
 from typing import Generator, Dict, Any
-from deepinsight.core.agent.base_agent import BaseAgent
+from deepinsight.core.agent.base import BaseAgent
 from deepinsight.config.model import ModelConfig
 from camel.agents import ChatAgent
 from camel.responses import ChatAgentResponse
 from deepinsight.core.agent.stream_chat_agent import StreamChatAgent
-from deepinsight.core.messages import Message, ChunkMessage
+from deepinsight.core.types.messages import ChunkMessage
 from camel.types import ModelPlatformType, ModelType
 
 

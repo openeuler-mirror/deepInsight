@@ -13,14 +13,14 @@ import re
 from camel.responses import ChatAgentResponse
 
 from deepinsight.config.model import ModelConfig
-from deepinsight.core.agent.base_agent import BaseAgent, Output_Type
-from typing import Any, Dict, List, Generator
+from deepinsight.core.agent.base import BaseAgent, OutputType
+from typing import Any, Dict, Generator
 from typing import Optional, TypeAlias, Callable, List
 
 from pydantic import BaseModel
 
 from deepinsight.core.agent.researcher import ResearchExecution
-from deepinsight.core.messages import Message
+from deepinsight.core.types.messages import Message
 from deepinsight.core.prompt.prompt_template import GLOBAL_DEFAULT_PROMPT_REPOSITORY, PromptStage
 from deepinsight.utils.parallel_worker_utils import Executor
 
@@ -50,9 +50,9 @@ ReportPlanParser: TypeAlias = Callable[[str], List[WritingTask]]
 ReportPostProcesser: TypeAlias = Callable[[List[WritingTask]], str]
 
 
-class ReportPlanAgent(BaseAgent[List[WritingTask]]):
+class GenerateSubTaskAgent(BaseAgent[List[WritingTask]]):
     """
-    Specialized agent for generating structured writing tasks from research data.
+    Specialized agent for generating structured sub tasks from research data.
 
     Inherits from BaseAgent with List[WritingTask] as the concrete output type.
     """
@@ -84,13 +84,13 @@ class ReportPlanAgent(BaseAgent[List[WritingTask]]):
             **context,
         ))
 
-    def parse_output(self, response: ChatAgentResponse) -> Output_Type:
+    def parse_output(self, response: ChatAgentResponse) -> OutputType:
         if self.report_plan_parser:
             return self.report_plan_parser(response.msg.content)
         return super().parse_output(response)
 
 
-class ReportWriterAgent(BaseAgent[str]):
+class ExecuteSubTaskAgent(BaseAgent[str]):
     """
      Specialized agent for executing individual writing tasks.
 
@@ -111,7 +111,7 @@ class ReportWriterAgent(BaseAgent[str]):
             **context,
         ))
 
-    def parse_output(self, response: ChatAgentResponse) -> Output_Type:
+    def parse_output(self, response: ChatAgentResponse) -> OutputType:
         return response.msg.content
 
 
@@ -186,7 +186,7 @@ class Reporter:
 
     def _generate_writing_task(self, query, research_executions):
         """Generate structured writing tasks from research results."""
-        write_agent = ReportPlanAgent(
+        write_agent = GenerateSubTaskAgent(
             self.model_config,
             self.mcp_tools_config_path,
             self.mcp_client_timeout,
@@ -208,7 +208,7 @@ class Reporter:
 
     def _write_task(self, query, writing_task: WritingTask) -> Generator[Message, None, str]:
         """Execute an individual writing task."""
-        write_agent = ReportWriterAgent(self.model_config, self.mcp_tools_config_path, self.mcp_client_timeout)
+        write_agent = ExecuteSubTaskAgent(self.model_config, self.mcp_tools_config_path, self.mcp_client_timeout)
         report = yield from write_agent.run(
             query=query,
             context=dict(
