@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "tavily": {
+      "command": "python",
+      "args": [
+        "integrations/mcps/tavily.py",
+        "--mode",
+        "stdio"
+      ],
+      "env": {
+        "TAVILY_API_KEY": "<YOUR-TAVILY_KEY>"
+      }
+    }
+  }
+}
