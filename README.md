@@ -2,18 +2,18 @@
 
 DeepInsight是面向企业的深度研究智能体，通过采用多Agent协同、上下文工程、MCP以及异构知识检索等技术，构建效果好、扩展易、体验优的关键能力，为在鲲鹏、昇腾以及其他智算平台上搭建开箱即用的深度研究能力提供开源范例与最佳实践。
 
-您可以通过私有化部署进行体验，参加[快速开始]()。
+您可以通过私有化部署进行体验，参加[快速开始](#2-快速开始)。
 
 ## 1. 软件架构
 
 DeepInsight采用多Agent架构，通过多种不同角色Agent协作，提升复杂研究任务的完成能力：
-- **用户交互Agent**：基于用户研究主题，向用户追问澄清需求，并与用户交互调整计划
-- **计划制定Agent**：基于澄清后的需求，制定由多个研究任务组成的计划，并管理各任务研究状态
-- 每个任务交给一个**研究团队**进行研究，每个研究团队由管理Agent、执行Agent、评估Agent组成：
-	- **管理Agent**：对研究任务补充上下文（目标、验收标准、相关指导）后向执行Agent下发，对研究任务执行结果提供反馈，给出修正建议或进一步指导，并判断任务是否完成，过程中如需用户补充需求描述，可向用户追问
-	- **执行Agent**：按照研究Agent给定的任务目标和描述，选择相应的工具（如网络搜索、知识库检索、代码执行等）完成每个研究任务
-	- **评估Agent**：对执行Agent完成结果进行评估（例如对于信息检索类任务进行检索内容的评估和冲突检测）
-- **报告生成Agent**：汇总各个研究任务结果，生成指定类型（Markdown/PPT/PDF/播客/视频）的多模态结果
+- **意图识别Agent**：基于用户研究主题，向用户追问需求并细化
+- **计划制定Agent**：基于细化后的需求，制定由多个研究任务组成的计划，并管理各任务状态，支持由用户自定义调整计划
+- 每个任务交给一个**研究团队**进行研究，每个研究团队内部构成“**研究-执行-评估**”迭代式循环：
+	- **研究者Agent**：对研究任务补充上下文（目标、验收标准、指导）后下发给执行者Agent，判断任务是否完成并给出下一步指导，过程中可追问用户补充所需信息
+	- **执行者Agent**：按照给定的研究任务选择相应的工具完成每个研究任务
+	- **评估者Agent**：对执行者Agent的执行结果进行评估反思，并检测知识冲突情况
+- **报告生成Agent**：汇总各个研究任务结果，生成指定类型的多模态结构化报告
 
 ![DeepInsight Architecture](docs/images/DeepInsight_Architecture.png)
 
@@ -22,7 +22,7 @@ DeepInsight采用多Agent架构，通过多种不同角色Agent协作，提升�
 ### 方式一：命令行运行
 1. 安装依赖
 ```commandline
-poetry install pyptoject.toml
+poetry install pyproject.toml
 export DEEPSEEK_API_KEY=<YOUR-DEEPSEEK_API_KEY>
 cp mcp_config.example.json mcp_config.json
 ```
@@ -37,7 +37,7 @@ python deepinsight/app.py "<YOUR-QUERY>" --output output
 #### 启动后端服务
 
 ```
-poetry install pyptoject.toml
+poetry install pyproject.toml
 python deepinsight/app.py
 ```
 
