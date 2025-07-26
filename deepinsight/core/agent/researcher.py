@@ -17,9 +17,9 @@ from camel.types.agents import ToolCallingRecord
 from pydantic import BaseModel, Field
 
 from deepinsight.config.model import ModelConfig
-from deepinsight.core.agent.base_agent import BaseAgent
+from deepinsight.core.agent.base import BaseAgent
 from deepinsight.core.agent.planner import SearchPlan, PlanResult
-from deepinsight.core.messages import Message
+from deepinsight.core.types.messages import Message
 from deepinsight.core.prompt.prompt_template import GLOBAL_DEFAULT_PROMPT_REPOSITORY, PromptStage
 from deepinsight.utils.parallel_worker_utils import Executor
 

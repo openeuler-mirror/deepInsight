@@ -15,13 +15,16 @@ from copy import deepcopy
 from enum import Enum
 from typing import Any, Dict, List, Optional, TypeAlias, Callable
 
+from camel.messages import BaseMessage
 from camel.responses import ChatAgentResponse
+from camel.types import OpenAIBackendRole
 from pydantic import BaseModel, Field
 from typing_extensions import override
 
-from deepinsight.core.agent.base_agent import BaseAgent
 from deepinsight.config.model import ModelConfig
+from deepinsight.core.agent.base import BaseAgent
 from deepinsight.core.prompt.prompt_template import GLOBAL_DEFAULT_PROMPT_REPOSITORY, PromptStage
+from deepinsight.core.types.historical_message import HistoricalMessage, HistoricalMessageType
 
 
 class NotSupportStreamException(Exception):
@@ -170,8 +173,8 @@ class Planner(BaseAgent[PlanResult]):
             mcp_tools_config_path: Optional[str] = None,
             mcp_client_timeout: Optional[int] = None,
             plan_parser: PlanParser = None,
-            current_plan: Optional[str] = None,
-            current_search_plan: Optional[str] = None,
+            latest_search_plan: Optional[str] = None,
+            historical_messages: Optional[List[HistoricalMessage]] = None,
     ) -> None:
         """
         Initialize the Planner agent with configuration and optional dependencies.
@@ -181,14 +184,40 @@ class Planner(BaseAgent[PlanResult]):
             mcp_tools_config_path: Path to MCP tools configuration
             mcp_client_timeout: Timeout for MCP client operations
             plan_parser: Custom parser for plan responses (defaults to built-in)
-            current_plan: Current active plan (if continuing previous work)
-            current_search_plan: Current search plan context
+            latest_search_plan: Current search plan context
+            historical_messages: List of historical messages
         """
         super().__init__(model_config, mcp_tools_config_path, mcp_client_timeout)
         self.plan_parser = plan_parser or self._default_plan_parser
-        self.current_plan = current_plan
-        self.history_plans: List[PlanResult] = []
-        self.current_search_plan = current_search_plan
+        # Init plan
+        if historical_messages:
+            self._init_historical_messages_to_memory(historical_messages)
+        self.current_search_plan = None
+        latest_search_plan = latest_search_plan or next(
+            (msg.content for msg in reversed(historical_messages)
+             if msg.type != HistoricalMessageType.USER),
+            None
+        ) if historical_messages else None
+        if latest_search_plan:
+            self.current_search_plan = self.plan_parser(latest_search_plan)
+
+    def _init_historical_messages_to_memory(self, historical_messages: List[HistoricalMessage]) -> None:
+        for message in historical_messages:
+            if message.type == HistoricalMessageType.USER:
+                agent_message = BaseMessage.make_user_message(
+                    role_name="User",
+                    content=message.content,
+                )
+            else:
+                agent_message = BaseMessage.make_assistant_message(
+                    role_name="Assistant",
+                    content=message.content,
+                )
+            self.agent.update_memory(
+                message=agent_message,
+                role=OpenAIBackendRole.USER if message.type == HistoricalMessageType.USER else OpenAIBackendRole.SYSTEM,
+                timestamp=message.created_time.timestamp(),
+            )
 
     @override
     def build_system_prompt(self) -> str:
@@ -204,7 +233,7 @@ class Planner(BaseAgent[PlanResult]):
         return GLOBAL_DEFAULT_PROMPT_REPOSITORY.get_prompt(
             stage=PromptStage.PLAN_USER, variables=dict(
                 query=query,
-                current_search_plan=self.current_search_plan,
+                current_search_plan="\n".join([each.origin_plan for each in self.current_search_plan.search_plans]) if self.current_search_plan else "",
                 **context if context is not None else {},
             )
         )
@@ -243,9 +272,7 @@ class Planner(BaseAgent[PlanResult]):
 
         if full_response.startswith("开始研究"):
             # If need start research
-            if not self.history_plans:
-                raise NoPlanException("History plan is empty")
-            final_plan = deepcopy(self.history_plans[-1])
+            final_plan = deepcopy(self.current_search_plan)
             final_plan.status = PlanStatus.FINALIZED
             return final_plan
         else:
@@ -279,7 +306,8 @@ class Planner(BaseAgent[PlanResult]):
                         SearchPlan(
                             title=search_step_title,
                             description=search_step_description,
-                            origin_plan=step)
+                            origin_plan=step
+                        )
                     )
             plan_result = PlanResult(
                 search_plans=search_plans,
@@ -287,3 +315,7 @@ class Planner(BaseAgent[PlanResult]):
             )
             return plan_result
 
+    def post_run(self, output: PlanResult) -> None:
+        """Post run process."""
+        super().post_run(output)
+        self.current_search_plan = output
