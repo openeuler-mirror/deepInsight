@@ -1,0 +1,32 @@
+.documentChunkView {
+  .documentChunkList {
+    gap: 6px;
+    padding-inline: 4px;
+
+    .documentChunkItem {
+      .documentChunkIcon {
+        font-size: 24px;
+        color: rgb(0, 0, 0);
+        border-radius: 100%;
+        width: 16px;
+        height: 16px;
+        font-size: 12px;
+        align-items: center;
+        justify-content: center;
+
+        :hover {
+          transform: scale(1.5);
+        }
+      }
+    }
+  }
+}
+
+.documentChunkItemView {
+  max-height: 60vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  padding: 8px;
+  background: #ffffff;
+  border-radius: 4px;
+}

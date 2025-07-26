@@ -1,0 +1,94 @@
+.researchCard {
+  // border: 1px solid #4c4a4a;
+  border-radius: 0px;
+  background: #ffffff;
+  margin: 0px;
+  transition: all 0.3s ease;
+
+  .reflection {
+    border-radius: 8px;
+    justify-content: space-between;
+    background-color: #dff2fb;
+    margin: 0px;
+    padding: 8px;
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      margin: 4px;
+    }
+
+    .title {
+      font-weight: 800;
+      color: rgba(0, 0, 0, 0.85);
+    }
+
+    .collapseIcon {
+      transition: transform 0.3s;
+      color: #1890ff;
+    }
+
+    .expanded {
+      transform: rotate(90deg);
+    }
+
+    .thinkContent {
+      padding: 0px;
+      border: 1px solid #f0f0f0;
+      background: #dff2fb;
+      border-radius: 0 0 8px 8px;
+      animation: fadeIn 0.3s ease;
+
+      .text {
+        font-weight: 700;
+        color: rgba(0, 0, 0, 0.85);
+        margin-bottom: 12px;
+      }
+
+      .executeTools {
+        font-weight: 400;
+        color: rgba(0, 0, 0, 0.85);
+        background: #e3e7fb;
+        border: 0px solid #e3e7fb;
+        border-radius: 8px;
+        padding: 8px;
+        margin: 0px;
+        margin-bottom: 12px;
+
+        .executeToolsArgs {
+          margin: 8px;
+        }
+
+        .executeToolsResult {
+          margin: 8px;
+        }
+      }
+    }
+  }
+
+  .nothinkContent {
+    padding: 0px;
+    border-top: 1px solid #f0f0f0;
+    background: #ffffff;
+    border-radius: 0 0 8px 8px;
+    animation: fadeIn 0.3s ease;
+    margin-top: 12px;
+    padding: 8px;
+
+    .text {
+      font-weight: 400;
+      color: rgba(0, 0, 0, 0.85);
+    }
+  }
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-size: 16px !important; /* 设置标题与正文字体相同 */
+}
