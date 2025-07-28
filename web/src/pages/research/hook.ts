@@ -6,7 +6,8 @@ import {
   useFetchNextConversation,
   useFetchNextConversationList,
   useFetchNextDialog,
-  useGetChatSearchParams,
+  useFetchResearchDialog,
+  useGetChatSearchParams, useNextConversation,
   useRemoveNextConversation,
   useRemoveNextDialog,
   useSetNextDialog,
@@ -69,7 +70,11 @@ export const useSetChatRouteParams = () => {
     return newQueryParameters.get(ChatSearchParams.isNew);
   }, [newQueryParameters]);
 
-  return { setConversationIsNew, getConversationIsNew };
+  const getConversationIdByRouteParams = useCallback(() => {
+    return newQueryParameters.get(ChatSearchParams.ConversationId);
+  }, [newQueryParameters]);
+
+  return { setConversationIsNew, getConversationIsNew, getConversationIdByRouteParams };
 };
 
 export const useSetNewConversationRouteParams = () => {
@@ -207,6 +212,7 @@ export const useEditDialog = () => {
 };
 
 //#region conversation
+
 const useFindPrologueFromResearchDialog = () => {
   const prologue = '';
   return prologue;
@@ -220,9 +226,10 @@ export const useSelectDerivedConversationList = () => {
   const { dialogId } = useGetChatSearchParams();
   const { setNewConversationRouteParams } = useSetNewConversationRouteParams();
   const prologue = useFindPrologueFromResearchDialog();
+  const { setConversation } = useNewConversation();
 
-  const addTemporaryConversation = useCallback(() => {
-    const conversationId = getConversationId();
+  const addTemporaryConversation = useCallback(async () => {
+    let conversationId = getConversationId();
     setList((pre) => {
       setNewConversationRouteParams(conversationId, 'true');
       const nextList = [
@@ -235,11 +242,11 @@ export const useSelectDerivedConversationList = () => {
           message: [
             ...(prologue
               ? [
-                  {
-                    content: prologue,
-                    role: MessageType.Assistant,
-                  },
-                ]
+                {
+                  content: prologue,
+                  role: MessageType.Assistant,
+                },
+              ]
               : []),
           ],
         } as any,
@@ -270,17 +277,8 @@ export const useSetConversation = () => {
       type?: string,
     ) => {
       const data = await updateConversation({
-        dialog_id: dialogId,
-        name: message,
-        is_new: isNew,
         conversation_id: conversationId,
-        message: [
-          {
-            role: MessageType.Assistant,
-            content: message,
-          },
-        ],
-        ...(type && { type }),
+        new_name: message,
       });
 
       return data;
@@ -290,6 +288,29 @@ export const useSetConversation = () => {
 
   return { setConversation };
 };
+
+export const useNewConversation = () => {
+  const { dialogId } = useGetChatSearchParams();
+  const { nextConversation } = useNextConversation();
+
+  const setConversation = useCallback(
+      async (
+          conversationId?: string,
+          title?: string,
+      ) => {
+        const data = await nextConversation({
+          conversation_id: conversationId,
+          title,
+        });
+
+        return data;
+      },
+      [nextConversation, dialogId],
+  );
+
+  return { setConversation };
+};
+
 
 export const useSelectNextMessages = () => {
   const {
@@ -306,9 +327,8 @@ export const useSelectNextMessages = () => {
   const { data: conversation, loading } = useFetchNextConversation();
   const { conversationId, dialogId, isNew } = useGetChatSearchParams();
   const prologue = useFindPrologueFromResearchDialog();
-
   const addPrologue = useCallback(() => {
-    if (dialogId !== '' && isNew === 'true' && prologue) {
+    if (isNew === 'true') {
       const nextMessage = {
         role: MessageType.Assistant,
         content: prologue,
@@ -395,7 +415,7 @@ function getMode() {
 }
 
 export const useSendNextMessage = (controller: AbortController) => {
-  const { setConversation } = useSetConversation();
+  const { setConversation } = useNewConversation();
   const { conversationId, isNew } = useGetChatSearchParams();
   const { handleInputChange, value, setValue } = useHandleMessageInputChange();
   const [isDeepResearch, setDeepResearch] = useState<boolean>(true);
@@ -435,7 +455,7 @@ export const useSendNextMessage = (controller: AbortController) => {
     removeMessageById,
     removeMessagesAfterCurrentMessage,
   } = useSelectNextMessages();
-  const { setConversationIsNew, getConversationIsNew } =
+  const { setConversationIsNew, getConversationIsNew, getConversationIdByRouteParams } =
     useSetChatRouteParams();
 
   const stopOutputMessage = useCallback(() => {
@@ -485,19 +505,18 @@ export const useSendNextMessage = (controller: AbortController) => {
   const handleSendMessage = useCallback(
     async (message: Message) => {
       const isNew = getConversationIsNew();
+      const conversationId = getConversationIdByRouteParams();
       if (isNew !== 'true') {
         sendMessage({ message });
       } else {
+        let title =message.content;
         const data = await setConversation(
-          message.content,
-          true,
-          conversationId,
-          'deepresearch',
+            conversationId,
+            title
         );
         if (data.code === 0) {
           setConversationIsNew('');
           const id = data.data.id;
-          // currentConversationIdRef.current = id;
           sendMessage({
             message,
             currentConversationId: id,
@@ -530,7 +549,7 @@ export const useSendNextMessage = (controller: AbortController) => {
 
   useEffect(() => {
     //  #1289
-    if (answer.answer && conversationId && isNew !== 'true') {
+    if (answer.messages && conversationId && isNew !== 'true') {
       addNewestAnswerDeduplicateByMessageId(answer);
     }
   }, [answer, addNewestAnswerDeduplicateByMessageId, conversationId, isNew]);
@@ -632,7 +651,7 @@ export const useRenameConversation = () => {
 
   const handleShowConversationRenameModal = useCallback(
     async (conversationId: any) => {
-      setConversation(conversationId);
+      setConversation(conversationId)
       // const ret = await fetchConversation(conversationId);
       // if (ret.code === 0) {
       //   setConversation(ret.data);

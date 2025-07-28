@@ -53,7 +53,7 @@ export function ResearchActivitiesBlock({
       derivedMessages[derivedMessages.length - 1]?.content[
         derivedMessages[derivedMessages.length - 1]?.content.length - 1
       ]?.type;
-    if (type === 'result') {
+    if (type === 'report') {
       setLastUser(true);
       setLastScrollTop(0);
       return;
@@ -158,7 +158,7 @@ export function ResearchActivitiesBlock({
     // console.log(derivedMessages)
 
     let messagees = derivedMessages[derivedMessages.length - 1].content.filter(
-      (messagePart, index) => messagePart.process === 'think',
+      (messagePart, index) => messagePart.type != 'report',
     );
 
     // console.log('ResearchActivitiesBlock ===messagees===', messagees);
@@ -166,16 +166,13 @@ export function ResearchActivitiesBlock({
     let htmlArr = [];
     // 兼容两种模式：
     if (
-      messagees[0].type.startsWith('step') ||
-      messagees[1]?.type.startsWith('step')
+      messagees[0].type.startsWith('title') ||
+      messagees[1]?.type.startsWith('title')
     ) {
       for (let i = 0; i < messagees.length; i++) {
         let x = messagees[i];
-
-        // console.log("messagees item =====",x)
-
         // 如果是时间轴
-        if (x.type.startsWith('step')) {
+        if (x.type.startsWith('title')) {
           // console.log("------------setp")
           htmlArr = [];
           // console.log('时间轴----', x.content)
@@ -205,7 +202,7 @@ export function ResearchActivitiesBlock({
           });
         } else if (x.type.startsWith('content')) {
           // 如果是工具调用
-          if (x.type.startsWith('content_tool')) {
+          if (x.type.startsWith('tool_call')) {
             // 1.result是数组情况
             if (Array.isArray(x.content.result)) {
               // console.log('array------', x.content.result)

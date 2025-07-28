@@ -81,7 +81,7 @@ export function ResearchBlock({
       derivedMessages[derivedMessages.length - 1]?.content[
         derivedMessages[derivedMessages.length - 1]?.content.length - 1
       ]?.type;
-    return type === 'result';
+    return type === 'report';
   }
 
   function updateUserTab(tab) {

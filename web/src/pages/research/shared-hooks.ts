@@ -108,7 +108,7 @@ export const useSendSharedMessage = () => {
   }, [fetchSessionId, send]);
 
   useEffect(() => {
-    if (answer.answer) {
+    if (answer.messages) {
       addNewestAnswer(answer);
     }
   }, [answer, addNewestAnswer]);

@@ -22,7 +22,7 @@ export function ResearchReportBlock({
   derivedMessages: [];
   loading: boolean;
 }) {
-  const { data: conversation } = useFetchNextConversation();
+
 
   // 报告过程往下滚动，用户往上滑动就停止自动往下滚动
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -33,7 +33,7 @@ export function ResearchReportBlock({
       derivedMessages[derivedMessages.length - 1]?.content[
         derivedMessages[derivedMessages.length - 1]?.content.length - 1
       ]?.type;
-    if (type != 'result') {
+    if (type != 'report') {
       setLastUser(true);
       setLastScrollTop(0);
       return;
@@ -67,7 +67,7 @@ export function ResearchReportBlock({
   if (typeof myMd != 'string') {
     return;
   }
-  if (type != 'result') {
+  if (type != 'report') {
     return (
       <span>
         <Spin style={{ padding: 10 }} />

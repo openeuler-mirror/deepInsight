@@ -544,7 +544,7 @@ export const useSendNextMessage = (controller: AbortController) => {
 
   useEffect(() => {
     //  #1289
-    if (answer.answer && conversationId && isNew !== 'true') {
+    if (answer.messages && conversationId && isNew !== 'true') {
       addNewestAnswerDeduplicateByMessageId(answer);
     }
   }, [answer, addNewestAnswerDeduplicateByMessageId, conversationId, isNew]);

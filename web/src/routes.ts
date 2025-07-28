@@ -1,10 +1,5 @@
 const routes = [
   {
-    path: '/login',
-    component: '@/pages/login',
-    layout: false,
-  },
-  {
     path: '/',
     component: '@/layouts',
     layout: false,

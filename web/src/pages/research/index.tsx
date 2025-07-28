@@ -1,7 +1,15 @@
 import { ReactComponent as ChatAppCube } from '@/assets/svg/chat-app-cube.svg';
 import RenameModal from '@/components/rename-modal';
-import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import {
+  DeleteOutlined,
+  EditOutlined,
+  LeftOutlined,
+  RightOutlined,
+  SearchOutlined,
+  SettingOutlined,
+} from '@ant-design/icons';
+import {
+  Avatar,
   Button,
   Card,
   Divider,
@@ -23,7 +31,7 @@ import {
   useHandleItemHover,
   useRenameConversation,
   useSelectDerivedConversationList,
-} from './hook';
+} from './hooks';
 
 import EmbedModal from '@/components/api-service/embed-modal';
 import { useShowEmbedModal } from '@/components/api-service/hooks';
@@ -38,6 +46,7 @@ import {
 import { useTranslate } from '@/hooks/common-hooks';
 import { useSetSelectedRecord } from '@/hooks/logic-hooks';
 import { IDialog } from '@/interfaces/database/chat';
+import chatService from '@/services/chat-service';
 import styles from './index.less';
 
 const { Text } = Typography;
@@ -46,7 +55,8 @@ const Chat = () => {
   // 深度研究助理
   const { data: dialog, loading: dialogLoading } = useFetchResearchDialog();
   const { handleClickDialog } = useClickDialogCard();
-  const { dialogId: dialogIdSearchParams } = useGetChatSearchParams();
+  const { dialogId: dialogIdSearchParams } =
+    useGetChatSearchParams();
   const { onRemoveConversation } = useDeleteConversation();
   const { handleClickConversation } = useClickConversationCard();
 
@@ -86,19 +96,19 @@ const Chat = () => {
 
   const handleRemoveConversation =
     (conversationId: string): MenuItemProps['onClick'] =>
-    ({ domEvent }) => {
-      domEvent.preventDefault();
-      domEvent.stopPropagation();
-      onRemoveConversation([conversationId]);
-    };
+      ({ domEvent }) => {
+        domEvent.preventDefault();
+        domEvent.stopPropagation();
+        onRemoveConversation([conversationId]);
+      };
 
   const handleShowConversationRenameModal =
     (conversationId: string): MenuItemProps['onClick'] =>
-    ({ domEvent }) => {
-      domEvent.preventDefault();
-      domEvent.stopPropagation();
-      showConversationRenameModal(conversationId);
-    };
+      ({ domEvent }) => {
+        domEvent.preventDefault();
+        domEvent.stopPropagation();
+        showConversationRenameModal(conversationId);
+      };
 
   const {
     list: conversationList,
@@ -109,37 +119,38 @@ const Chat = () => {
 
   const handleCreateTemporaryConversation = useCallback(() => {
     addTemporaryConversation();
-    const searchParams = new URLSearchParams(window.location.search);
-    const conversationId = searchParams.get('conversationId');
+    // const searchParams = new URLSearchParams(window.location.search);
+    // const conversationId = searchParams.get('conversationId');
     // setConversationId(conversationId)
   }, [addTemporaryConversation]);
 
   useEffect(() => {
     // 反复横跳入口
-    if (dialog.id !== dialogIdSearchParams) {
-      handleClickDialog(dialog.id);
+    if ('b81317ce69c511f0a13e0242ac140006' !== dialogIdSearchParams) {
+      handleClickDialog('b81317ce69c511f0a13e0242ac140006');
     }
-  }, [dialog.id]);
+  }, []);
 
   const [conversationListPage, setConversationListPage] =
     useState<any>(conversationList);
 
+
   useEffect(() => {
     if (conversationList.length > 0) {
-      const firstDateItem = conversationList.find(
-        (item) => item.type !== 'date',
-      );
-      setConversationId(firstDateItem ? conversationId : '');
+      const firstDateItem = conversationList.find(item => item.type !== 'date');
+      setConversationId(firstDateItem?.conversationId || '');
+      handleClickConversation(firstDateItem?.conversationId || '', firstDateItem?.is_new);
     }
-    //
-    //
-    //
-    //
     setConversationListPage(conversationList);
   }, [conversationList]);
 
   const handleConversationCardClick = useCallback(
     (conversationId: string, isNew: boolean) => () => {
+      handleClickConversation(conversationId, isNew ? 'true' : '');
+      setController((pre) => {
+        pre.abort();
+        return new AbortController();
+      });
       setConversationId(conversationId);
     },
     [handleClickConversation],
@@ -222,10 +233,7 @@ const Chat = () => {
                   <Card
                     key={x.conversationId}
                     hoverable
-                    onClick={handleConversationCardClick(
-                      x.conversationId,
-                      x.is_new,
-                    )}
+                    onClick={handleConversationCardClick(x.conversationId, x.is_new)}
                     onMouseEnter={handleConversationCardEnter(x.conversationId)}
                     onMouseLeave={handleConversationItemLeave}
                     className={classNames(styles.chatTitleCard, {
@@ -242,9 +250,7 @@ const Chat = () => {
                           style={{
                             width: 150,
                             color:
-                              x.conversationId === conversationId
-                                ? '#0695ff'
-                                : '#000',
+                              x.conversationId === conversationId ? '#0695ff' : '#000',
                             fontWeight: 500,
                           }}
                         >
@@ -256,9 +262,7 @@ const Chat = () => {
                         !x.is_new && (
                           <section>
                             <Dropdown
-                              menu={{
-                                items: buildConversationItems(x.conversationId),
-                              }}
+                              menu={{ items: buildConversationItems(x.conversationId) }}
                             >
                               <ChatAppCube
                                 className={styles.cubeIcon}

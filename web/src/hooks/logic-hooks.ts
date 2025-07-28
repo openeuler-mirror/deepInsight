@@ -22,7 +22,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useTranslation } from 'react-i18next';
 import { v4 as uuid } from 'uuid';
 import { useTranslate } from './common-hooks';
 import { useSetPaginationParams } from './route-hook';
@@ -53,17 +52,7 @@ export const useHandleSearchChange = () => {
 };
 
 export const useChangeLanguage = () => {
-  const { i18n } = useTranslation();
-  const { saveSetting } = useSaveSetting();
 
-  const changeLanguage = (lng: string) => {
-    i18n.changeLanguage(
-      LanguageTranslationMap[lng as keyof typeof LanguageTranslationMap],
-    );
-    saveSetting({ language: lng });
-  };
-
-  return changeLanguage;
 };
 
 export const useGetPaginationWithRouter = () => {
@@ -155,7 +144,6 @@ export const useFetchAppConf = () => {
   return appConf;
 };
 
-// 默认问一问接口
 export const useSendMessageWithSse = (
   url: string = api.questionConversation,
 ) => {
@@ -188,7 +176,7 @@ export const useSendMessageWithSse = (
       try {
         // 深度研究接口
         if (body.type === 'deepresearch') {
-          url = api.deepResearchConversation;
+          url = api.chat;
         }
         setDone(false);
         console.log(`🚀 ~ url:${url}`);
@@ -446,7 +434,7 @@ export const useSelectDerivedMessages = () => {
         ...(pre?.slice(0, -1) ?? []),
         {
           role: MessageType.Assistant,
-          content: answer.answer,
+          content: answer.messages,
           reference: answer.reference,
           id: buildMessageUuid({
             id: answer.id,
@@ -470,7 +458,7 @@ export const useSelectDerivedMessages = () => {
             ...(pre?.slice(0, -1) ?? []),
             {
               role: MessageType.Assistant,
-              content: answer.answer,
+              content: answer.messages,
               reference: answer.reference,
               id: buildMessageUuid({
                 id: answer.id,
@@ -486,7 +474,7 @@ export const useSelectDerivedMessages = () => {
             ...(pre ?? []),
             {
               role: MessageType.Assistant,
-              content: answer.answer,
+              content: answer.messages,
               reference: answer.reference,
               id: buildMessageUuid({
                 id: answer.id,
@@ -529,14 +517,14 @@ export const useSelectDerivedMessages = () => {
           const latestMessage = nextMessages.at(-1);
           nextMessages = latestMessage
             ? [
-                ...nextMessages.slice(0, -1),
-                {
-                  ...latestMessage,
-                  content: '',
-                  reference: undefined,
-                  prompt: undefined,
-                },
-              ]
+              ...nextMessages.slice(0, -1),
+              {
+                ...latestMessage,
+                content: '',
+                reference: undefined,
+                prompt: undefined,
+              },
+            ]
             : nextMessages;
           return nextMessages;
         }
@@ -577,14 +565,14 @@ export const useRemoveMessagesAfterCurrentMessage = (
           const latestMessage = nextMessages.at(-1);
           nextMessages = latestMessage
             ? [
-                ...nextMessages.slice(0, -1),
-                {
-                  ...latestMessage,
-                  content: '',
-                  reference: undefined,
-                  prompt: undefined,
-                },
-              ]
+              ...nextMessages.slice(0, -1),
+              {
+                ...latestMessage,
+                content: '',
+                reference: undefined,
+                prompt: undefined,
+              },
+            ]
             : nextMessages;
           return {
             ...pre,

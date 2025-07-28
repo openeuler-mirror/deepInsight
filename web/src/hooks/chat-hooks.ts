@@ -37,10 +37,6 @@ export const useClickDialogCard = () => {
   const handleClickDialog = useCallback(
     (dialogId: string) => {
       newQueryParameters.set(ChatSearchParams.DialogId, dialogId);
-      // newQueryParameters.set(
-      //   ChatSearchParams.ConversationId,
-      //   EmptyConversationId,
-      // );
       setSearchParams(newQueryParameters);
     },
     [newQueryParameters, setSearchParams],

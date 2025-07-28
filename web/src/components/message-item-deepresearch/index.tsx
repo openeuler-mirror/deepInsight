@@ -46,15 +46,8 @@ const MessageItemDeepResearch = ({
     });
   };
 
-  // 兼容老的
-  let num = 2;
   content
-    .filter((messagePart, index) => messagePart.process === 'think')
-    .map((messagePart, index) => {
-      if (messagePart.type === 'dialog_hiding') {
-        num = index;
-      }
-    });
+      .filter((messagePart, index) => messagePart.type === 'title');
 
   let htmlItem = '';
 
@@ -77,7 +70,7 @@ const MessageItemDeepResearch = ({
         {expanded && (
           <Card className={classNames(styles.thinkContent)}>
             {content
-              .filter((messagePart, index) => messagePart.process === 'think')
+              .filter((messagePart, index) => messagePart.type === 'title')
               .map((messagePart, index) => {
                 // console.log('messagePart======', messagePart);
                 if (messagePart.type === 'tool_calls') {
@@ -100,10 +93,9 @@ const MessageItemDeepResearch = ({
                     );
                   }
                 } else {
-                  // console.log('根据标志位判断执行计划==', messagePart);
-                  if (index >= num) {
-                    return null;
-                  }
+
+
+
                   htmlItem += messagePart?.content + '\n\r';
                 }
               })}
@@ -180,55 +172,7 @@ const MessageItemDeepResearch = ({
         </div>
       </section>
 
-      {/*<div className={classNames(styles.nothinkContent)}>*/}
-      {/*  {content*/}
-      {/*    .filter((messagePart, index) => messagePart.process !== 'think')*/}
-      {/*    .map((messagePart, index) => {*/}
-      {/*      console.log('messagePart====', messagePart)*/}
-      {/*      return messagePart.type === 'generated_ppt' ? (*/}
-      {/*        <Tooltip*/}
-      {/*          title={t('download', {keyPrefix: 'common'})}*/}
-      {/*          key={index}*/}
-      {/*        >*/}
-      {/*          <Button*/}
-      {/*            type="primary"*/}
-      {/*            ghost*/}
-      {/*            onClick={() =>*/}
-      {/*              onDownloadClick({*/}
-      {/*                id: (messagePart.content as any).id,*/}
-      {/*                filename: (messagePart.content as any).name,*/}
-      {/*              })*/}
-      {/*            }*/}
-      {/*            style={{*/}
-      {/*              display: 'flex',*/}
-      {/*              alignItems: 'center',*/}
-      {/*              gap: 8,*/}
-      {/*            }}*/}
-      {/*          >*/}
-      {/*            <span style={{display: 'flex', alignItems: 'center'}}>*/}
-      {/*              <FilePptFilled/>*/}
-      {/*              <span style={{marginLeft: 8}}>*/}
-      {/*                {(messagePart.content as any).name}*/}
-      {/*              </span>*/}
-      {/*            </span>*/}
-      {/*            <DownloadOutlined/>*/}
-      {/*          </Button>*/}
-      {/*        </Tooltip>*/}
-      {/*      ) : (*/}
-      {/*        <MarkdownContent*/}
-      {/*          key={index}*/}
-      {/*          loading={false}*/}
-      {/*          content={*/}
-      {/*            typeof messagePart.content === 'string'*/}
-      {/*              ? (messagePart.content as string)*/}
-      {/*              : JSON.stringify(messagePart.content)*/}
-      {/*          }*/}
-      {/*          reference={{} as IReference}*/}
-      {/*          // clickDocumentButton={clickDocumentButton}*/}
-      {/*        ></MarkdownContent>*/}
-      {/*      );*/}
-      {/*    })}*/}
-      {/*</div>*/}
+
     </Card>
   );
 };

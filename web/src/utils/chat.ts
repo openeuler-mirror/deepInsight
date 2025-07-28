@@ -28,7 +28,7 @@ export const buildMessageListWithUuid = (messages?: Message[]) => {
 };
 
 export const getConversationId = () => {
-  return uuid().replace(/-/g, '');
+  return uuid();
 };
 
 // When rendering each message, add a prefix to the id to ensure uniqueness.
