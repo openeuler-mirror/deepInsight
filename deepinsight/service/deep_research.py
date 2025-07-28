@@ -25,7 +25,7 @@ from deepinsight.core.types.agent import AgentType, AgentMessageAdditionType
 from deepinsight.core.types.historical_message import HistoricalMessage, HistoricalMessageType
 from deepinsight.core.types.messages import StartMessage, ChunkMessage, EndMessage, MessageMetadataKey, CompleteMessage, \
     ErrorMessage, Message as CoreMessage
-from deepinsight.service.schemas.chat import ServiceMessage
+from deepinsight.service.schemas.chat import ChatMessage
 from deepinsight.stores.postgresql.database import get_database_session
 from deepinsight.stores.postgresql.repositories.conversation_repository import ConversationRepository
 from deepinsight.stores.postgresql.repositories.message_repository import MessageRepository
@@ -102,7 +102,7 @@ class DeepResearchService:
             query: str,
             conversation_id: str,
             user_id: str,
-    ) -> Generator[Optional[ServiceMessage], None, None]:
+    ) -> Generator[Optional[ChatMessage], None, None]:
         # Initialize repositories with fresh session
         with get_database_session() as db:
             conversation_repo = ConversationRepository(db)
@@ -139,16 +139,16 @@ class DeepResearchService:
     def _wrap_response(
             cls,
             original_response: DeepResearchResponse,
-    ) -> Optional[ServiceMessage]:
+    ) -> Optional[ChatMessage]:
         if original_response.thought_and_report and original_response.message:
-            return ServiceMessage(
+            return ChatMessage(
                 id=original_response.message.message_id,
                 content=original_response.thought_and_report,
                 role=MessageType.REPORT.value,
                 created_at=original_response.message.created_at
             )
         elif original_response.message:
-            return ServiceMessage(
+            return ChatMessage(
                 id=original_response.message.message_id,
                 content=original_response.message.content,
                 role=MessageType.SEARCH_PLAN.value,
