@@ -3,13 +3,39 @@ name = "deepInsight"
 version = "0.1.0"
 description = ""
 readme = "README.md"
-packages = [{include = "deepinsight", from = '.'}]
+# 明确指定需要包含的顶级包
+packages = [
+    {include = "deepinsight"},
+    {include = "integrations"}
+]
+# 排除非Python包目录
+exclude = ["License"]
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.13"
 camel-ai = ">=0.2.60"
 pydantic = ">=2.10.6"
 rich = ">=14.0.0"
+fastapi = "0.116.1"
+sqlalchemy = "2.0.41"
+pymongo = "4.13.2"
+flask = "3.1.1"
+flask_cors = "6.0.1"
+python-dotenv = "*"  # 新增环境变量管理依赖
+
+# 跨平台可选依赖组
+[tool.poetry.group.win.dependencies]
+psycopg2-binary = "2.9.9"  # Windows平台专用
+
+[tool.poetry.group.unix.dependencies]
+psycopg2 = "2.9.9"  # Linux/macOS平台专用
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"
+black = "*"
+flake8 = "*"
+mypy = "*"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

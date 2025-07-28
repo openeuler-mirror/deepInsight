@@ -1,4 +1,5 @@
 .idea
 output
-**/*/__pycache__
+**/__pycache__
 mcp_config.json
+/.env
