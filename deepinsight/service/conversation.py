@@ -11,7 +11,7 @@
 from typing import List
 
 from deepinsight.service.deep_research import DeepResearchService
-from deepinsight.service.schemas.chat import ServiceMessage
+from deepinsight.service.schemas.chat import ChatMessage
 from deepinsight.service.schemas.conversation import ConversationListItem
 from deepinsight.stores.postgresql.database import get_database_session
 from deepinsight.stores.postgresql.repositories.conversation_repository import ConversationRepository
@@ -65,7 +65,7 @@ class ConversationService:
         return repository.get_by_id(conversation_id_str)
 
     @classmethod
-    def get_history_messages(cls, conversation_id_str: str) -> List[ServiceMessage]:
+    def get_history_messages(cls, conversation_id_str: str) -> List[ChatMessage]:
         db = get_database_session()
         repository = MessageRepository(db)
         messages_from_db = repository.get_by_conversation_id(conversation_id_str)
@@ -78,7 +78,7 @@ class ConversationService:
                 content_to_use = processed_report.thought.messages + [processed_report.report]
 
 
-            processed_message = ServiceMessage(
+            processed_message = ChatMessage(
                 id=str(msg.message_id),
                 content=content_to_use,
                 role=msg.type,

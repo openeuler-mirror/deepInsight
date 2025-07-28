@@ -13,7 +13,7 @@ from typing import Union, List
 from pydantic import BaseModel, Field
 
 
-class ServiceMessage(BaseModel):
+class ChatMessage(BaseModel):
     """
     Represents a single message within a conversation.
     """
@@ -39,7 +39,7 @@ class GetChatHistoryStructure(BaseModel):
     created_time: str
     title: str
     status: str
-    messages: List[ServiceMessage]
+    messages: List[ChatMessage]
 
 
 class GetChatHistoryRsp(BaseModel):
