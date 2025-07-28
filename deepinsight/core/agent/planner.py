@@ -13,7 +13,7 @@ import logging
 import re
 from copy import deepcopy
 from enum import Enum
-from typing import Any, Dict, List, Optional, TypeAlias, Callable
+from typing import Any, Dict, List, Optional, TypeAlias, Callable, Generator
 
 from camel.messages import BaseMessage
 from camel.responses import ChatAgentResponse
@@ -23,8 +23,9 @@ from typing_extensions import override
 
 from deepinsight.config.model import ModelConfig
 from deepinsight.core.agent.base import BaseAgent
-from deepinsight.core.prompt.prompt_template import GLOBAL_DEFAULT_PROMPT_REPOSITORY, PromptStage
+from deepinsight.core.prompt.prompt_template import GLOBAL_DEFAULT_PROMPT_REPOSITORY, PromptStage, PromptTemplate
 from deepinsight.core.types.historical_message import HistoricalMessage, HistoricalMessageType
+from deepinsight.core.types.messages import Message
 
 
 class NotSupportStreamException(Exception):
@@ -172,6 +173,7 @@ class Planner(BaseAgent[PlanResult]):
             model_config: ModelConfig,
             mcp_tools_config_path: Optional[str] = None,
             mcp_client_timeout: Optional[int] = None,
+            tips_prompt_template: Optional[PromptTemplate] = None,
             plan_parser: PlanParser = None,
             latest_search_plan: Optional[str] = None,
             historical_messages: Optional[List[HistoricalMessage]] = None,
@@ -187,7 +189,7 @@ class Planner(BaseAgent[PlanResult]):
             latest_search_plan: Current search plan context
             historical_messages: List of historical messages
         """
-        super().__init__(model_config, mcp_tools_config_path, mcp_client_timeout)
+        super().__init__(model_config, mcp_tools_config_path, mcp_client_timeout, tips_prompt_template)
         self.plan_parser = plan_parser or self._default_plan_parser
         # Init plan
         if historical_messages:
@@ -233,7 +235,7 @@ class Planner(BaseAgent[PlanResult]):
         return GLOBAL_DEFAULT_PROMPT_REPOSITORY.get_prompt(
             stage=PromptStage.PLAN_USER, variables=dict(
                 query=query,
-                current_search_plan="\n".join([each.origin_plan for each in self.current_search_plan.search_plans]) if self.current_search_plan else "",
+                current_search_plan=self._search_plan_text(self.current_search_plan) if self.current_search_plan else "",
                 **context if context is not None else {},
             )
         )
@@ -271,6 +273,8 @@ class Planner(BaseAgent[PlanResult]):
             )
 
         if full_response.startswith("开始研究"):
+            if not self.current_search_plan:
+                raise NoPlanException("No plan can not start")
             # If need start research
             final_plan = deepcopy(self.current_search_plan)
             final_plan.status = PlanStatus.FINALIZED
@@ -315,7 +319,15 @@ class Planner(BaseAgent[PlanResult]):
             )
             return plan_result
 
-    def post_run(self, output: PlanResult) -> None:
+    def post_run(self, output: PlanResult) -> Generator[Message, None, None]:
         """Post run process."""
-        super().post_run(output)
         self.current_search_plan = output
+        if output.status == PlanStatus.FINALIZED:
+            yield from self.yield_tips_messages(PromptStage.PLAN_START_TIPS, search_plans=self._search_plan_text(output))
+        yield from super().post_run(output)
+
+    def _search_plan_text(self, plan_result: PlanResult) -> str:
+        if plan_result.search_plans:
+            return "\n".join([each.origin_plan for each in plan_result.search_plans])
+        else:
+            return ""

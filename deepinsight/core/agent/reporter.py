@@ -9,19 +9,19 @@
 # See the Mulan PSL v2 for more details.
 import logging
 import re
-
-from camel.responses import ChatAgentResponse
-
-from deepinsight.config.model import ModelConfig
-from deepinsight.core.agent.base import BaseAgent, OutputType
+import uuid
 from typing import Any, Dict, Generator
 from typing import Optional, TypeAlias, Callable, List
 
+from camel.responses import ChatAgentResponse
 from pydantic import BaseModel
 
+from deepinsight.config.model import ModelConfig
+from deepinsight.core.agent.base import BaseAgent, OutputType
 from deepinsight.core.agent.researcher import ResearchExecution
-from deepinsight.core.types.messages import Message
-from deepinsight.core.prompt.prompt_template import GLOBAL_DEFAULT_PROMPT_REPOSITORY, PromptStage
+from deepinsight.core.prompt.prompt_template import GLOBAL_DEFAULT_PROMPT_REPOSITORY, PromptStage, PromptTemplate
+from deepinsight.core.types.agent import AgentExecutePhase
+from deepinsight.core.types.messages import Message, CompleteMessage, MessageMetadataKey
 from deepinsight.utils.parallel_worker_utils import Executor
 
 
@@ -56,11 +56,13 @@ class GenerateSubTaskAgent(BaseAgent[List[WritingTask]]):
 
     Inherits from BaseAgent with List[WritingTask] as the concrete output type.
     """
+
     def __init__(
             self,
             model_config: ModelConfig,
             mcp_tools_config_path: Optional[str] = None,
             mcp_client_timeout: Optional[int] = None,
+            tips_prompt_template: Optional[PromptTemplate] = None,
             report_plan_parser: Optional[ReportPlanParser] = None,
     ) -> None:
         """
@@ -72,7 +74,7 @@ class GenerateSubTaskAgent(BaseAgent[List[WritingTask]]):
           mcp_client_timeout: Timeout for MCP client operations
           report_plan_parser: Custom parser for converting LLM responses to writing tasks
         """
-        super().__init__(model_config, mcp_tools_config_path, mcp_client_timeout)
+        super().__init__(model_config, mcp_tools_config_path, mcp_client_timeout, tips_prompt_template)
         self.report_plan_parser = report_plan_parser
 
     def build_system_prompt(self) -> str:
@@ -89,6 +91,13 @@ class GenerateSubTaskAgent(BaseAgent[List[WritingTask]]):
             return self.report_plan_parser(response.msg.content)
         return super().parse_output(response)
 
+    def pre_run(self, query: str, context: Dict[str, Any] | None = None) -> Generator[Message, None, None]:
+        yield from self.yield_tips_messages(tips_prompt_name=PromptStage.REPORT_PLAN_TIPS)
+
+    def post_run(self, output: OutputType) -> Generator[Message, None, None]:
+        yield from self.yield_tips_messages(tips_prompt_name=PromptStage.REPORT_WRITE_TIPS)
+        yield from super().post_run(output)
+
 
 class ExecuteSubTaskAgent(BaseAgent[str]):
     """
@@ -97,10 +106,15 @@ class ExecuteSubTaskAgent(BaseAgent[str]):
      Inherits from BaseAgent with str as the concrete output type.
      """
 
-    def __init__(self, model_config: ModelConfig, mcp_tools_config_path: Optional[str] = None,
-                 mcp_client_timeout: Optional[int] = None) -> None:
+    def __init__(
+            self,
+            model_config: ModelConfig,
+            mcp_tools_config_path: Optional[str] = None,
+            mcp_client_timeout: Optional[int] = None,
+            tips_prompt_template: Optional[PromptTemplate] = None,
+    ) -> None:
         """Initialize with model and MCP configuration."""
-        super().__init__(model_config, mcp_tools_config_path, mcp_client_timeout)
+        super().__init__(model_config, mcp_tools_config_path, mcp_client_timeout, tips_prompt_template)
 
     def build_system_prompt(self) -> str:
         return GLOBAL_DEFAULT_PROMPT_REPOSITORY.get_prompt(PromptStage.REPORT_WRITE_SYSTEM)
@@ -130,6 +144,7 @@ class Reporter:
             model_config: ModelConfig,
             mcp_tools_config_path: Optional[str] = None,
             mcp_client_timeout: Optional[int] = None,
+            tips_prompt_template: Optional[PromptTemplate] = None,
             report_plan_parser: Optional[ReportPlanParser] = None,
             report_post_processer: Optional[ReportPostProcesser] = None,
     ):
@@ -146,6 +161,7 @@ class Reporter:
         self.model_config = model_config
         self.mcp_tools_config_path = mcp_tools_config_path
         self.mcp_client_timeout = mcp_client_timeout
+        self.tips_prompt_template = tips_prompt_template
         self.report_plan_parser = report_plan_parser or self._default_report_plan_parser
         self.report_post_processer = report_post_processer or self._default_report_post_processer
 
@@ -168,6 +184,14 @@ class Reporter:
             str: The final generated report
         """
         writing_tasks = yield from self._generate_writing_task(query=query, research_executions=research_executions)
+        # Report plan has complete, send a phase message
+        yield CompleteMessage(
+            stream_id=str(uuid.uuid4()),
+            payload=None,
+            metadata={
+                MessageMetadataKey.AGENT_EXECUTE_PHASE: AgentExecutePhase.REPORT_WRITING
+            }
+        )
         writing_report_executor = Executor("writing_report")
 
         def report_writing_worker(i, writing_task: WritingTask):
@@ -190,6 +214,7 @@ class Reporter:
             self.model_config,
             self.mcp_tools_config_path,
             self.mcp_client_timeout,
+            self.tips_prompt_template,
             self.report_plan_parser,
         )
         research_info = self._construct_research_info(research_executions)
@@ -208,7 +233,13 @@ class Reporter:
 
     def _write_task(self, query, writing_task: WritingTask) -> Generator[Message, None, str]:
         """Execute an individual writing task."""
-        write_agent = ExecuteSubTaskAgent(self.model_config, self.mcp_tools_config_path, self.mcp_client_timeout)
+        write_agent = ExecuteSubTaskAgent(
+            self.model_config,
+            self.mcp_tools_config_path,
+            self.mcp_client_timeout,
+            self.tips_prompt_template,
+        )
+
         report = yield from write_agent.run(
             query=query,
             context=dict(

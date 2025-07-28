@@ -19,8 +19,9 @@ from pydantic import BaseModel, Field
 from deepinsight.config.model import ModelConfig
 from deepinsight.core.agent.base import BaseAgent
 from deepinsight.core.agent.planner import SearchPlan, PlanResult
-from deepinsight.core.types.messages import Message
-from deepinsight.core.prompt.prompt_template import GLOBAL_DEFAULT_PROMPT_REPOSITORY, PromptStage
+from deepinsight.core.types.agent import AgentMessageAdditionType
+from deepinsight.core.types.messages import Message, CompleteMessage, MessageMetadataKey
+from deepinsight.core.prompt.prompt_template import GLOBAL_DEFAULT_PROMPT_REPOSITORY, PromptStage, PromptTemplate
 from deepinsight.utils.parallel_worker_utils import Executor
 
 
@@ -95,6 +96,7 @@ class RolePlayingUser(BaseAgent[ChatAgentResponse]):
 
     Specializes BaseAgent to handle user-side interactions in research dialogues.
     """
+
     def __init__(
             self,
             model_config: ModelConfig,
@@ -106,7 +108,7 @@ class RolePlayingUser(BaseAgent[ChatAgentResponse]):
     def build_system_prompt(self) -> str:
         return GLOBAL_DEFAULT_PROMPT_REPOSITORY.get_prompt(PromptStage.RESEARCH_ROLE_PLAYING_USER_SYSTEM)
 
-    def build_user_prompt(self, *, query:str, context: Dict[str, Any] | None = None) -> str:
+    def build_user_prompt(self, *, query: str, context: Dict[str, Any] | None = None) -> str:
         return query
 
 
@@ -116,6 +118,7 @@ class RolePlayingAssistant(BaseAgent[ChatAgentResponse]):
 
     Specializes BaseAgent to handle assistant-side interactions in research dialogues.
     """
+
     def __init__(self, model_config: ModelConfig, mcp_tools_config_path: Optional[str] = None,
                  mcp_client_timeout: Optional[int] = None) -> None:
         super().__init__(model_config, mcp_tools_config_path, mcp_client_timeout)
@@ -123,8 +126,7 @@ class RolePlayingAssistant(BaseAgent[ChatAgentResponse]):
     def build_system_prompt(self) -> str:
         return GLOBAL_DEFAULT_PROMPT_REPOSITORY.get_prompt(PromptStage.RESEARCH_ROLE_PLAYING_ASSISTANT_SYSTEM)
 
-
-    def build_user_prompt(self, *, query:str, context: Dict[str, Any] | None = None) -> str:
+    def build_user_prompt(self, *, query: str, context: Dict[str, Any] | None = None) -> str:
         return query
 
 
@@ -137,6 +139,7 @@ class StreamRolePlaying:
     - Message exchange
     - Termination conditions
     """
+
     def __init__(
             self,
             model_config: ModelConfig,
@@ -144,7 +147,7 @@ class StreamRolePlaying:
             mcp_client_timeout: Optional[int] = None,
             should_terminate_callback: Optional[ResearchShouldTerminateCallback] = None,
             **kwargs,
-        ) -> None:
+    ) -> None:
         """
         Initialize the role-playing orchestrator.
 
@@ -179,7 +182,7 @@ class StreamRolePlaying:
             self,
             query: str,
             context: Dict[str, Any] | None = None,
-        ) -> Generator[Message, None, Tuple[ChatAgentResponse, ChatAgentResponse]]:
+    ) -> Generator[Message, None, Tuple[ChatAgentResponse, ChatAgentResponse]]:
         """
         Execute a complete role-playing dialogue turn.
 
@@ -218,7 +221,8 @@ class StreamRolePlaying:
             )
 
         user_msg = user_response.msg
-        assistant_response: ChatAgentResponse = yield from self.assistant_agent.run(query=user_msg.content, context=context)
+        assistant_response: ChatAgentResponse = yield from self.assistant_agent.run(query=user_msg.content,
+                                                                                    context=context)
         if assistant_response.terminated or assistant_response.msgs is None:
             return (
                 ChatAgentResponse(
@@ -261,6 +265,7 @@ class Researcher:
             model_config: ModelConfig,
             mcp_tools_config_path: Optional[str] = None,
             mcp_client_timeout: Optional[int] = None,
+            tips_prompt_template: Optional[PromptTemplate] = None,
             round_limit: int = 15,
             should_terminate_callback: ResearchShouldTerminateCallback = None,
     ) -> None:
@@ -277,6 +282,7 @@ class Researcher:
         self.model_config = model_config
         self.mcp_tools_config_path = mcp_tools_config_path
         self.mcp_client_timeout = mcp_client_timeout
+        self.tips_prompt_template = tips_prompt_template
         self.round_limit = round_limit
         self.should_terminate_callback: ResearchShouldTerminateCallback = should_terminate_callback or self._default_should_terminate_callback
 
@@ -296,12 +302,27 @@ class Researcher:
         """
         # Parallel search info
         search_parallel_executor = Executor("Search")
+
         def search_info_worker(i, search_step: SearchPlan):
+            yield CompleteMessage(
+                stream_id=str(uuid.uuid4()),
+                payload=self.tips_prompt_template.get_prompt(
+                    stage=PromptStage.RESEARCH_START_TIPS,
+                    variables=dict(
+                        task_id=i + 1,
+                        task_title=search_step.title,
+                    )
+                ),
+                metadata={
+                    MessageMetadataKey.ADDITION_TYPE: AgentMessageAdditionType.TIPS
+                }
+            )
             one_search_content = yield from self._search_info_with_role_playing(
                 query=query,
                 search_plan=search_step,
             )
             return one_search_content or []
+
         all_content = yield from search_parallel_executor(search_info_worker,
                                                           list(enumerate(plan_result.search_plans)))
         flattened = []
@@ -350,7 +371,7 @@ class Researcher:
             stage=PromptStage.RESEARCH_ROLE_PLAYING_USER_USER,
             variables=dict(
                 query=query,
-               current_plan=search_plan.origin_plan,
+                current_plan=search_plan.origin_plan,
             )
         )
 
@@ -368,7 +389,8 @@ class Researcher:
             last_user_response = user_response
             assistant_execution_step = ExecutionStep(
                 content=assistant_response.msg.content,
-                tool_calls=assistant_response.info.get("tool_calls") if assistant_response.info.get("tool_calls") else None
+                tool_calls=assistant_response.info.get("tool_calls") if assistant_response.info.get(
+                    "tool_calls") else None
             )
 
             user_execution_stop = ExecutionStep(

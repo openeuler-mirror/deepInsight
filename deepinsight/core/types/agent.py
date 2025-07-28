@@ -14,3 +14,12 @@ class AgentType(str, Enum):
     PLANNER = "planner"
     RESEARCHER = "researcher"
     REPORTER = "reporter"
+
+
+class AgentMessageAdditionType(str, Enum):
+    TIPS = "tips"
+
+
+class AgentExecutePhase(str, Enum):
+    REPORT_PLANING = "report_planning"
+    REPORT_WRITING = "report_writing"
