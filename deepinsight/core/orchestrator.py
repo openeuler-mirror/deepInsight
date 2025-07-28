@@ -17,9 +17,10 @@ from deepinsight.config.model import ModelConfig
 from deepinsight.core.agent.planner import Planner, PlanStatus
 from deepinsight.core.agent.reporter import Reporter
 from deepinsight.core.agent.researcher import Researcher
-from deepinsight.core.types.agent import AgentType
+from deepinsight.core.prompt.prompt_template import PromptTemplate, PromptStage
+from deepinsight.core.types.agent import AgentType, AgentExecutePhase
 from deepinsight.core.types.historical_message import HistoricalMessage
-from deepinsight.core.types.messages import Message
+from deepinsight.core.types.messages import Message, MessageMetadataKey
 
 
 class OrchestratorStatus(BaseModel):
@@ -42,7 +43,8 @@ class OrchestratorStatusType(str, Enum):
     PENDING = OrchestratorStatus(status="pending")
     PLANNING = OrchestratorStatus(status="planning")
     RESEARCHING = OrchestratorStatus(status="researching")
-    REPORTING = OrchestratorStatus(status="reporting")
+    REPORT_PLANNING = OrchestratorStatus(status="report_planning")
+    REPORT_WRITING = OrchestratorStatus(status="report_writing")
     COMPLETED = OrchestratorStatus(status="completed")
     FAILED = OrchestratorStatus(status="failed")
 
@@ -78,7 +80,7 @@ class OrchestrationRequest(BaseModel):
     )
 
 
-class OrchestratorResult(BaseModel):
+class OrchestrationResult(BaseModel):
     """
     Container for orchestration process outputs with interactive capabilities.
 
@@ -130,6 +132,7 @@ class Orchestrator:
             mcp_client_timeout: Optional[int] = None,
             research_round_limit: int = 5,
             init_request: Optional[OrchestrationRequest] = None,
+            execute_tips_template_dict: Optional[Dict[Union[str, PromptStage], str]] = None,
     ) -> None:
         """
         Initialize the orchestration engine with configuration.
@@ -141,10 +144,12 @@ class Orchestrator:
             research_round_limit: Maximum number of research iterations
             init_request: Init request for orchestration
         """
+        self.agent_execute_phase_tips_template = self._init_tips_template(execute_tips_template_dict)
         self.planner = Planner(
             model_config=model_config,
             mcp_tools_config_path=mcp_tools_config_path,
             mcp_client_timeout=mcp_client_timeout,
+            tips_prompt_template=self.agent_execute_phase_tips_template,
             historical_messages=init_request.agent_historical_messages.get(
                 AgentType.PLANNER, []
             ) if init_request else []
@@ -154,6 +159,7 @@ class Orchestrator:
             model_config=model_config,
             mcp_tools_config_path=mcp_tools_config_path,
             mcp_client_timeout=mcp_client_timeout,
+            tips_prompt_template=self.agent_execute_phase_tips_template,
             round_limit=research_round_limit
         )
 
@@ -161,6 +167,7 @@ class Orchestrator:
             model_config=model_config,
             mcp_tools_config_path=mcp_tools_config_path,
             mcp_client_timeout=mcp_client_timeout,
+            tips_prompt_template=self.agent_execute_phase_tips_template,
         )
         self.current_phase = OrchestratorStatusType.PENDING
         self.start_time = None
@@ -169,7 +176,7 @@ class Orchestrator:
     def run(
             self,
             query: str
-    ) -> Generator[Union[Message, OrchestratorStatusType], None, OrchestratorResult]:
+    ) -> Generator[Union[Message, OrchestratorStatusType], None, OrchestrationResult]:
         """
         Execute the full orchestration workflow for a given query.
 
@@ -180,7 +187,7 @@ class Orchestrator:
             Union[Message, PhaseStartMessage]: Progress messages during execution
 
         Returns:
-            OrchestratorResult: Final output artifacts
+            OrchestrationResult: Final output artifacts
 
         Raises:
             OrchestrationException: If any phase fails
@@ -197,13 +204,13 @@ class Orchestrator:
             plan_result = yield from self.planner.run(query)
             if plan_result.requires_user_input:
                 # Need user feedback
-                return OrchestratorResult(
+                return OrchestrationResult(
                     require_user_interactive=True,
                     require_user_feedback=plan_result.information_required,
                 )
             elif plan_result.status == PlanStatus.DRAFT:
                 # Need user confirm plan draft
-                return OrchestratorResult(
+                return OrchestrationResult(
                     require_user_interactive=True,
                     plan_draft="\n".join([plan.origin_plan for plan in plan_result.search_plans])
                 )
@@ -218,16 +225,27 @@ class Orchestrator:
             )
 
             # Phase 3: report
-            self.current_phase = OrchestratorStatusType.REPORTING
-            yield OrchestratorStatusType.RESEARCHING
 
-            report_result = yield from self.reporter.run(
+            self.current_phase = OrchestratorStatusType.REPORT_PLANNING
+            yield OrchestratorStatusType.REPORT_PLANNING
+
+            reporter_run_generator = self.reporter.run(
                 query=query,
                 research_executions=research_executions,
             )
+            try:
+                while True:
+                    item = next(reporter_run_generator)
+                    if item.metadata.get(MessageMetadataKey.AGENT_EXECUTE_PHASE, None) == AgentExecutePhase.REPORT_WRITING:
+                        self.current_phase = OrchestratorStatusType.REPORT_WRITING
+                        yield OrchestratorStatusType.REPORT_WRITING
+                    else:
+                        yield item
+            except StopIteration as e:
+                report_result = e.value
 
             self.current_phase = OrchestratorStatusType.COMPLETED
-            return OrchestratorResult(report=report_result)
+            return OrchestrationResult(report=report_result)
 
         except Exception as exc:
             self.current_phase = OrchestratorStatusType.FAILED
@@ -237,3 +255,13 @@ class Orchestrator:
             ) from exc
         finally:
             self.end_time = datetime.utcnow()
+
+
+    def _init_tips_template(self, execute_tips_template_dict: Dict):
+        tips_template = PromptTemplate(
+            template_dict={}
+        )
+        if execute_tips_template_dict:
+            for key, value in execute_tips_template_dict.items():
+                tips_template.add_template(key, value)
+        return tips_template

@@ -29,7 +29,7 @@ cp mcp_config.example.json mcp_config.json
 2. 在`mcp_config.json`填写`TAVILY_API_KEY`
 3. 运行
 ```commandline
-python deepinsight/app.py "<YOUR-QUERY>" --output output
+python deepinsight/main.py "<YOUR-QUERY>" --output output
 ```
 
 ### 方式二：Web方式运行

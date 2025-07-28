@@ -9,6 +9,7 @@
 # See the Mulan PSL v2 for more details.
 from __future__ import annotations
 
+import uuid
 from abc import abstractmethod, ABC
 from typing import Any, Dict, Optional, TypeVar, Generator, Generic
 
@@ -18,7 +19,9 @@ from camel.toolkits import MCPToolkit
 
 from deepinsight.config.model import ModelConfig
 from deepinsight.core.agent.stream_chat_agent import StreamChatAgent
-from deepinsight.core.types.messages import Message
+from deepinsight.core.prompt.prompt_template import PromptTemplate
+from deepinsight.core.types.agent import AgentMessageAdditionType
+from deepinsight.core.types.messages import Message, CompleteMessage, MessageMetadataKey
 from deepinsight.utils.aio import get_or_create_loop
 
 OutputType = TypeVar("OutputType")
@@ -39,6 +42,7 @@ class BaseAgent(ABC, Generic[OutputType]):
             model_config: ModelConfig,
             mcp_tools_config_path: Optional[str] = None,
             mcp_client_timeout: Optional[int] = None,
+            tips_prompt_template: Optional[PromptTemplate] = None,
     ) -> None:
         """
         Initialize the base agent with configuration.
@@ -51,6 +55,7 @@ class BaseAgent(ABC, Generic[OutputType]):
         self.mcp_toolkit_instance = None
         self.mcp_tools_config_path = mcp_tools_config_path
         self.mcp_client_timeout = mcp_client_timeout
+        self.tips_prompt_template = tips_prompt_template
 
         self.connect_mcp()
         if model_config.model_config_dict and model_config.model_config_dict.get("stream", False):
@@ -161,6 +166,7 @@ class BaseAgent(ABC, Generic[OutputType]):
         Returns:
             T: The parsed output from parse_output()
         """
+        yield from self.pre_run(query, context)
         prompt = self.build_user_prompt(query=query, context=context)
         if isinstance(self.agent, StreamChatAgent):
             response = yield from self.agent.stream_step(prompt)
@@ -170,7 +176,16 @@ class BaseAgent(ABC, Generic[OutputType]):
         self.post_run(output)
         return output
 
-    def post_run(self, output: OutputType) -> None:
+    def pre_run(
+            self,
+            query: str,
+            context: Dict[str, Any] | None = None,
+    ) -> Generator[Message, None, None]:
+        if False:  # This technique is used to maintain the generator function characteristics
+            yield
+        return
+
+    def post_run(self, output: OutputType) -> Generator[Message, None, None]:
         """
         Post-processing hook that is called after run() completes successfully.
 
@@ -180,4 +195,23 @@ class BaseAgent(ABC, Generic[OutputType]):
         Args:
             output: The output from run() method
         """
-        pass
+        if False:  # This technique is used to maintain the generator function characteristics
+            yield
+        return
+
+    def yield_tips_messages(self, tips_prompt_name: str, **variables) -> Generator[Message, None, None]:
+        if self.tips_prompt_template:
+            yield self._create_tips_messages(tips_prompt_name, **variables)
+
+    def _create_tips_messages(self, tips_prompt_name: str, **variables) -> Message:
+        content = self.tips_prompt_template.get_prompt(
+            stage=tips_prompt_name,
+            variables=variables
+        )
+        return CompleteMessage(
+            stream_id=str(uuid.uuid4()),
+            payload=content,
+            metadata={
+                MessageMetadataKey.ADDITION_TYPE: AgentMessageAdditionType.TIPS
+            }
+        )

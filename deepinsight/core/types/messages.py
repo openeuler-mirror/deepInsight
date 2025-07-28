@@ -126,6 +126,12 @@ class HeartbeatMessage(BaseMessage):
     message_type: Literal[MessageType.HEARTBEAT] = MessageType.HEARTBEAT
     latency_ms: Optional[int] = Field(None, ge=0)
 
+
+class MessageMetadataKey(str, Enum):
+    ADDITION_TYPE = "addition_type"
+    AGENT_EXECUTE_PHASE = "agent_execute_phase"
+
+
 # Union type representing all possible message types
 Message = Union[
     StartMessage[T],

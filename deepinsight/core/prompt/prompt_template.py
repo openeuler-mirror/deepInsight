@@ -31,6 +31,10 @@ class PromptStage(str, Enum):
     REPORT_PLAN_USER = "report_plan_user"
     REPORT_WRITE_SYSTEM = "report_write_system"
     REPORT_WRITE_USER = "report_write_user"
+    PLAN_START_TIPS = "plan_start_tips"
+    RESEARCH_START_TIPS = "research_start_tips"
+    REPORT_PLAN_TIPS = "report_plan_tips"
+    REPORT_WRITE_TIPS = "report_write_tips"
     ERROR_RECOVERY = "error_recovery"
     CUSTOM = "custom"
 
