@@ -1,0 +1,25 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  frontend:
+  # 构建前端服务，使用当前目录下的 Dockerfile.frontend
+    build:
+      context: ./web
+      dockerfile: ../Dockerfile.frontend
+    ports:
+      - "9222:80"
+    volumes:
+      - ./web/default.conf:/etc/nginx/conf.d/default.conf
+    restart: always
+
+  backend:
+    # 构建后端服务，使用当前目录下的 Dockerfile.backend
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "9380:8000" # 将主机的 9380 端口映射到容器的 8000 端口
+    env_file:
+      - ./.env # 指定后端服务的环境变量文件
+    restart: always # 容器退出时自动重启

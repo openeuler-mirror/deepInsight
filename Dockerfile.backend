@@ -1,0 +1,84 @@
+# 阶段 1: 构建阶段
+# 使用 openEuler 24.03-lts-sp2 作为基础镜像，用于构建后端应用
+FROM hub.oepkgs.net/openeuler/openeuler:24.03-lts-sp2 AS builder
+
+# 配置华为云镜像源并更新系统包
+# 替换 openEuler 官方源为华为云镜像源，以加速包下载
+RUN sed -i 's|repo.openeuler.org|repo.huaweicloud.com/openeuler|g' /etc/yum.repos.d/openEuler.repo && \
+    sed -i 's|$releasever|24.03-LTS-SP2|g' /etc/yum.repos.d/openEuler.repo && \
+    sed -i '/metalink/d' /etc/yum.repos.d/openEuler.repo && \
+    sed -i '/metadata_expire/d' /etc/yum.repos.d/openEuler.repo && \
+    # 清理旧缓存，生成新缓存，并更新系统
+    yum clean all && \
+    yum makecache && \
+    yum update -y --skip-broken && \
+    yum install -y python3.11 python3.devel gcc-c++ shadow-utils git python3-pip && \
+    # 使用 pip 安装 Poetry
+    pip3 install poetry && \
+    # 清理 yum 缓存，减小镜像大小
+    yum clean all && \
+    rm -rf /var/cache/yum
+
+# 设置工作目录
+WORKDIR /app/backend
+
+# 复制 pyproject.toml 和 poetry.lock
+# 这一步在安装依赖之前，可以有效利用 Docker 层缓存，加快重复构建速度
+COPY pyproject.toml poetry.lock ./
+
+# 使用 Poetry 安装项目依赖
+# 配置 Poetry 在项目内创建虚拟环境
+# 设置 POETRY_PYPI_URL 环境变量来指定 PyPI 镜像源，并安装依赖
+ENV POETRY_PYPI_URL=https://mirrors.aliyun.com/pypi/simple/
+RUN poetry config virtualenvs.in-project true && \
+    poetry install --only main --no-root
+
+# 复制所有后端源文件
+# 将所有后端代码复制到容器中
+COPY . .
+
+# 阶段 2: 运行阶段
+# 使用 openEuler 24.03-lts-sp2 作为基础镜像，用于运行后端服务
+FROM hub.oepkgs.net/openeuler/openeuler:24.03-lts-sp2 AS runner
+
+# 配置华为云镜像源并更新系统包
+# 运行阶段也需要配置镜像源，以便安装 Python 运行时和 shadow-utils
+RUN sed -i 's|repo.openeuler.org|repo.huaweicloud.com/openeuler|g' /etc/yum.repos.d/openEuler.repo && \
+    sed -i 's|$releasever|24.03-LTS-SP2|g' /etc/yum.repos.d/openEuler.repo && \
+    sed -i '/metalink/d' /etc/yum.repos.d/openEuler.repo && \
+    sed -i '/metadata_expire/d' /etc/yum.repos.d/openEuler.repo && \
+    yum clean all && \
+    yum makecache && \
+    yum update -y --skip-broken && \
+    # 安装 Python 3.11 运行时和 shadow-utils
+    yum install -y python3.11 shadow-utils && \
+    yum clean all && \
+    rm -rf /var/cache/yum
+
+# 创建一个非 root 用户，提高安全性
+RUN groupadd --system --gid 1002 appgroup && \
+    useradd --system --uid 1002 --gid appgroup --shell /sbin/nologin deepinsight
+
+# 设置工作目录
+WORKDIR /app/backend
+
+# 复制构建阶段安装的 Python 依赖和应用代码
+# Poetry 默认会将依赖安装到项目目录下的 .venv，因此复制整个工作目录即可
+COPY --from=builder /app/backend/ /app/backend/
+
+# 更改应用目录的所有者和权限，以允许非 root 用户访问
+RUN chown -R deepinsight:appgroup /app/backend && \
+    chmod -R 755 /app/backend
+
+# 暴露后端服务端口
+EXPOSE 8000
+
+# 设置 PYTHONUNBUFFERED 环境变量，确保 Python 输出不被缓冲
+ENV PYTHONUNBUFFERED=1
+
+# 以非 root 用户运行
+USER deepinsight
+
+# 启动后端服务
+# 直接调用 Poetry 虚拟环境中的 gunicorn 可执行文件
+CMD ["python", "server.py"]
