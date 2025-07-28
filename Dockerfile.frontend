@@ -1,0 +1,81 @@
+# 当前路径位于web内
+# 阶段 1: 构建阶段
+# 使用 openEuler 24.03-lts-sp2 作为基础镜像，用于构建前端应用
+FROM hub.oepkgs.net/openeuler/openeuler:24.03-lts-sp2 AS builder
+
+# 设置工作目录
+WORKDIR /app/frontend
+
+# 配置华为云镜像源并更新系统包
+# 替换 openEuler 官方源为华为云镜像源，以加速包下载
+RUN sed -i 's|repo.openeuler.org|repo.huaweicloud.com/openeuler|g' /etc/yum.repos.d/openEuler.repo && \
+    sed -i 's|$releasever|24.03-LTS-SP2|g' /etc/yum.repos.d/openEuler.repo && \
+    sed -i '/metalink/d' /etc/yum.repos.d/openEuler.repo && \
+    sed -i '/metadata_expire/d' /etc/yum.repos.d/openEuler.repo && \
+    # 清理旧缓存，生成新缓存，并更新系统
+    yum clean all && \
+    yum makecache && \
+    yum update -y --skip-broken && \
+    # 安装 Node.js、npm
+    yum install -y nodejs npm && \
+    # 清理 yum 缓存，减小镜像大小
+    yum clean all && \
+    rm -rf /var/cache/yum
+
+COPY package*.json ./
+
+# 安装前端项目依赖
+RUN npm install
+
+COPY . .
+
+# 编译前端应用
+# 这会生成生产环境的静态文件，通常输出到 `dist` 或 `build` 目录
+RUN npm run build
+
+# 阶段 2: 运行阶段
+# 使用 openEuler 24.03-lts-sp2 作为基础镜像，用于运行前端服务
+FROM hub.oepkgs.net/openeuler/openeuler:24.03-lts-sp2 AS runner
+
+# 配置华为云镜像源并更新系统包
+# 运行阶段只需要安装 Nginx
+RUN sed -i 's|repo.openeuler.org|repo.huaweicloud.com/openeuler|g' /etc/yum.repos.d/openEuler.repo && \
+    sed -i 's|$releasever|24.03-LTS-SP2|g' /etc/yum.repos.d/openEuler.repo && \
+    sed -i '/metalink/d' /etc/yum.repos.d/openEuler.repo && \
+    sed -i '/metadata_expire/d' /etc/yum.repos.d/openEuler.repo && \
+    yum clean all && \
+    yum makecache && \
+    yum update -y --skip-broken && \
+    # 安装 Nginx
+    yum install -y nginx && \
+    # 修改 Nginx 主配置文件：
+    # 1. 确保 pid 文件路径指向 /var/run/nginx.pid
+    # 2. 尝试注释掉 user 指令以避免警告 (如果存在)
+    sed -i 's|^pid /run/nginx.pid;|pid /var/run/nginx.pid;|g' /etc/nginx/nginx.conf && \
+    sed -i 's|^user nginx;|#user nginx;|g' /etc/nginx/nginx.conf && \
+    yum clean all && \
+    rm -rf /var/cache/yum
+
+# 从构建阶段复制编译好的静态文件
+COPY --from=builder /app/frontend/dist /usr/share/nginx/html
+
+# 复制自定义的 Nginx 配置文件
+COPY default.conf /etc/nginx/conf.d/default.conf
+
+# 更改 Nginx 服务目录的所有者和权限，确保 Nginx 用户可以访问
+# Nginx 在 openEuler 上通常以 `nginx` 用户运行
+RUN chown -R nginx:nginx /usr/share/nginx/html && \
+    chmod -R 755 /usr/share/nginx/html && \
+    # IMPORTANT: Grant write permissions for the nginx user to /var/run
+    # This allows Nginx to create its PID file.
+    chown nginx:nginx /var/run
+    # chmod 777 /var/run # Avoid this if possible, as it's too broad. chown is better.
+
+# 暴露 Nginx 默认的 HTTP 端口
+EXPOSE 80
+
+# 以 Nginx 用户运行服务，提高安全性
+USER nginx
+
+# 启动 Nginx 服务，并保持在前台运行
+CMD ["nginx", "-g", "daemon off;"]
