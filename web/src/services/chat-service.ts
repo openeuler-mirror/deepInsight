@@ -72,6 +72,10 @@ const methods = {
     url: setConversation,
     method: 'put',
   },
+  addConversation: {
+    url: setConversation,
+    method: 'post',
+  },
   completeConversation: {
     url: completeConversation,
     method: 'post',

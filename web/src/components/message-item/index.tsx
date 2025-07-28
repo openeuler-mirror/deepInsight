@@ -176,7 +176,7 @@ const MessageItem = ({
                   : styles.messageUserText
               }
             >
-              {!(typeof item?.content === 'string') && type === 'research' && (
+              {!(typeof item?.content === 'string') && type === 'research'  && (
                 <MessageItemDeepResearch
                   content={item?.content}
                   handlePlanButtonClick={handlePlanButtonClick}

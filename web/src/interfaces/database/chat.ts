@@ -1,4 +1,5 @@
 import { MessageType } from '@/constants/chat';
+import { IFile } from './file-manager';
 
 export interface PromptConfig {
   empty_response: string;
@@ -64,16 +65,34 @@ export interface IConversation {
   update_date: string;
   update_time: number;
   is_new: true;
+  type: string;
+  files: Record<string, IFile[]>;
 }
 
 export interface Message {
-  content: string;
+  content: MessageContent;
   role: MessageType;
   doc_ids?: string[];
   prompt?: string;
   id?: string;
   audio_binary?: string;
-  data?: any;
+  // related files
+  files?: IFile[];
+}
+
+export type MessageContent = string | DeepResearchMessagePart[];
+
+export interface DeepResearchMessagePart {
+  content: string | DeepResearchMessagePartToolCall;
+  type: string;
+  process: string;
+  role: string;
+}
+
+export interface DeepResearchMessagePartToolCall {
+  tool_name: string;
+  args: object;
+  result: any;
 }
 
 export interface IReferenceChunk {
@@ -87,7 +106,6 @@ export interface IReferenceChunk {
   vector_similarity: number;
   term_similarity: number;
   positions: number[];
-  doc_type?: string;
 }
 
 export interface IReference {
@@ -96,19 +114,13 @@ export interface IReference {
   total: number;
 }
 
-export interface IReferenceObject {
-  chunks: Record<string, IReferenceChunk>;
-  doc_aggs: Record<string, Docagg>;
-}
-
 export interface IAnswer {
-  answer: string;
-  reference?: IReference;
+  messages: MessageContent;
+  reference: IReference;
   conversationId?: string;
   prompt?: string;
   id?: string;
   audio_binary?: string;
-  data?: any;
 }
 
 export interface Docagg {
