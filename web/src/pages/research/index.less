@@ -1,0 +1,109 @@
+.chatWrapper {
+  height: 100%;
+  width: 100%;
+
+  background: linear-gradient(
+    180deg,
+    rgba(241, 247, 255, 1) 0%,
+    rgba(241, 247, 255, 1) 0%,
+    rgba(242, 242, 246, 1) 0%,
+    rgba(233, 237, 246, 1) 100%,
+    rgba(233, 237, 246, 1) 100%
+  );
+
+  .settingButton {
+    position: fixed;
+    left: 30px; /* 距离左侧20px */
+    bottom: 15px; /* 距离底部20px */
+    z-index: 1000; /* 确保按钮不被其他元素遮挡 */
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    width: 160px;
+    background: none;
+    border: 1px solid #dbdada;
+  }
+
+  .chatAppWrapper {
+    width: 288px;
+    padding: 26px;
+
+    .chatAppContent {
+      overflow-y: auto;
+      width: 100%;
+    }
+
+    .chatAppCard {
+      :global(.ant-card-body) {
+        padding: 10px;
+      }
+      .cubeIcon {
+        &:hover {
+          cursor: pointer;
+        }
+      }
+    }
+    .chatAppCardSelected {
+      :global(.ant-card-body) {
+        //background-color: @gray11;
+        border-radius: 8px;
+      }
+    }
+    .chatAppCardSelectedDark {
+      :global(.ant-card-body) {
+        background-color: rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+      }
+    }
+  }
+  .chatTitleWrapper {
+    width: 220px;
+    padding: 26px 0;
+    background: #f9fbff;
+  }
+
+  .chatTitle {
+    padding: 5px 15px;
+  }
+
+  .chatTitleContent {
+    padding: 5px 10px;
+    overflow: auto;
+    height: 85%;
+  }
+
+  .chatSpin {
+    :global(.ant-spin-container) {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+  }
+
+  .chatTitleCard {
+    :global(.ant-card-body) {
+      padding: 8px;
+    }
+    border: none !important; /* 移除边框 */
+    background: transparent !important; /* 可选：移除背景 */
+  }
+
+  .chatTitleCardSelected {
+    :global(.ant-card-body) {
+      background-color: #e8f5ff;
+      border-radius: 8px;
+      color: #0695ff;
+    }
+  }
+  .chatTitleCardSelectedDark {
+    :global(.ant-card-body) {
+      background-color: rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+    }
+  }
+
+  .divider {
+    margin: 0;
+    height: 100%;
+  }
+}

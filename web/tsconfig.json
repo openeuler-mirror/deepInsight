@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "allowUmdGlobalAccess": true, // 允许访问 UMD 全局变量
+  },
+  "extends": "./src/.umi/tsconfig.json",
+  "@@/*": ["src/.umi/*"],
+  "root": ["../*"],
+}
