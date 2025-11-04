@@ -2,4 +2,7 @@
 output
 **/__pycache__
 mcp_config.json
-/.env
+.env
+deepinsight.db
+deepinsight.db-journal
+data/
