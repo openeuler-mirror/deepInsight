@@ -16,10 +16,71 @@ llms:
     setting:
       max_tokens: 4096
 
+# 通用工作路径配置（独立于 RAG）
+workspace:
+  work_root: ./data
+  # 会议洞察报告 PPT 模板路径（支持环境变量展开，如 ${PPT_TEMPLATE_PATH}）
+  conference_ppt_template_path: ./templates/conference_template.pptx
+
 # RAG 相关工作路径配置
 # 将作为所有 RAG 本地数据的前缀目录，例如：
 # - LightRAG working_dir -> ${rag.work_root}/rag_storage
 # - 会务文档目标根目录 -> ${rag.work_root}/original_files/conference/<conference_id>
 rag:
   work_root: ./data
+
+prompt_management:
+  source: local # local / remote
+  env: dev # dev / prod
+  langfuse:
+    public_key: ${LANGFUSE_PUBLIC_KEY}
+    secret_key: ${LANGFUSE_SECRET_KEY}
+    host: ${LANGFUSE_HOST}
+  groups:
+    deepresearch:
+      label: "latest"
+    conference_supervisor:
+      label: "latest"
+    conference_overview:
+      label: "latest"
+    conference_submission:
+      label: "latest"
+    conference_keynotes:
+      label: "latest"
+    conference_topic:
+      label: "latest"
+    conference_best_papers:
+      label: "latest"
+    conference_ppt_generate:
+      label: "latest"
       
+# 场景配置
+scenarios:
+  deep_research:
+    final_report_model: deepseek-chat
+    allow_user_clarification: true
+    allow_edit_research_brief: true
+    allow_edit_report_outline: true
+    stream_blocklist:
+      text:
+        clarify_with_user: true
+        write_research_brief: true
+        researcher_tools: true
+        publish_result: true
+        compress_research: true
+        generate_report_outline: true
+        tools: true
+        researcher: true
+        model: true
+        agent: true
+      tool_call:
+        clarify_with_user: true
+        write_research_brief: true
+        researcher: true
+        researcher_tools: true
+        publish_result: true
+        compress_research: true
+        generate_report_outline: true
+        tools: true
+        model: true
+        agent: true

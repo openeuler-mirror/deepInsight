@@ -9,10 +9,21 @@
 # See the Mulan PSL v2 for more details.
 from typing import Optional, Dict
 from pydantic import BaseModel, Field
+from typing import Optional, Dict
+
+
+class StreamBlocklistConfig(BaseModel):
+    text: Optional[Dict[str, bool]] = Field(None)
+    tool_call: Optional[Dict[str, bool]] = Field(None)
+
+
+class DeepResearch(BaseModel):
+    final_report_model: Optional[str] = Field(None, description="Final report model")
+    allow_user_clarification: Optional[bool] = Field(False)
+    allow_edit_research_brief: Optional[bool] = Field(False)
+    allow_edit_report_outline: Optional[bool] = Field(False)
+    stream_blocklist: Optional[StreamBlocklistConfig] = Field(None)
 
 
 class ScenariosConfig(BaseModel):
-    """场景配置（占位，支持默认值）"""
-
-    default: Optional[str] = Field(default=None, description="Default scenario key")
-    options: Dict[str, Dict] = Field(default_factory=dict, description="Scenario definitions map")
+    deep_research: Optional[DeepResearch] = Field(None)
