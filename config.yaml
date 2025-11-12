@@ -1,0 +1,25 @@
+app:
+  name: deepinsight
+  host: 0.0.0.0
+  port: 8888
+  api_prefix: /api/v1
+  reload: false
+
+database:
+  url: sqlite:///deepinsight.db
+
+llms:
+  - type: deepseek
+    model: deepseek-chat
+    base_url: https://api.deepseek.com/
+    api_key: ${DEEPSEEK_API_KEY}
+    setting:
+      max_tokens: 4096
+
+# RAG 相关工作路径配置
+# 将作为所有 RAG 本地数据的前缀目录，例如：
+# - LightRAG working_dir -> ${rag.work_root}/rag_storage
+# - 会务文档目标根目录 -> ${rag.work_root}/original_files/conference/<conference_id>
+rag:
+  work_root: ./data
+      

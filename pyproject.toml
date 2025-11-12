@@ -1,41 +1,78 @@
-[tool.poetry]
-name = "deepInsight"
+[project]
+name = "deepinsight"
 version = "0.1.0"
-description = ""
-readme = "README.md"
-# 明确指定需要包含的顶级包
-packages = [
-    {include = "deepinsight"},
-    {include = "integrations"}
+description = "DeepInsight assistant."
+authors = [
+    { name = "deepinsight", email = "deepinsight@huawei.com" }
 ]
-# 排除非Python包目录
-exclude = ["License"]
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "MIT" }
 
-[tool.poetry.dependencies]
-python = ">=3.10,<3.13"
-camel-ai = ">=0.2.60"
-pydantic = ">=2.10.6"
-rich = ">=14.0.0"
-fastapi = "0.116.1"
-sqlalchemy = "2.0.41"
-pymongo = "4.13.2"
-flask = "3.1.1"
-flask_cors = "6.0.1"
-python-dotenv = "*"  # 新增环境变量管理依赖
+# 应用依赖（按用户提供清单）
+dependencies = [
+  "langfuse >=3.0.6",
+  "langgraph >=0.1",
+  "langmem >= 0.0.20",
+  "langchain >= 0.3",
 
-# 跨平台可选依赖组
-[tool.poetry.group.win.dependencies]
-psycopg2-binary = "2.9.9"  # Windows平台专用
+  # llm dependency
+  "langchain-openai >= 0.3",
+  "langchain-deepseek >= 0.1",
+  "langchain-anthropic >= 0.3",
+  "langchain-google-genai >= 2.0",
+  "langchain-google-vertexai >= 2.0",
+  "langchain-aws >= 0.2",
+  "langchain-groq >= 0.3",
+  "langchain-cohere >= 0.3",
+  "langchain-nvidia-ai-endpoints >= 0.3",
+  "langchain-fireworks >= 0.3",
+  "langchain-mistralai >= 0.2",
+  "langchain-together >= 0.3",
+  "langchain-ibm >= 0.3",
+  "langchain-xai >= 0.2",
+  "langchain-perplexity >= 0.1",
+  "langchain-oci >= 0.1",
+  "langchain-tavily >= 0.2",
 
-[tool.poetry.group.unix.dependencies]
-psycopg2 = "2.9.9"  # Linux/macOS平台专用
+  "langchain-community >= 0.3",
+  "langchain-mcp-adapters >= 0.1",
+  "SQLAlchemy >=2.0,<3.0",
+  "alembic >=1.10",
+  "python-dotenv >=1.0",
+  "fastapi >= 0.1",
+  "uvicorn >= 0.10",
+  "tavily-python >= 0.1",
+  "rich >= 10.0",
+  "InquirerPy >= 0.2",
+  "weasyprint >= 60.0",
+  "markdown >= 3.0",
+  "prompt-toolkit >= 2.0",
+  "fastmcp >= 2.0",
+  "arxiv >= 2.0",
+  "kaleido == 0.2.1",
+  "deepagents >= 0.0.1",
+  "python-pptx >= 1.0",
+  "plotly >= 6.0",
+  "camel-ai == 0.2.60",
+  "lightrag-hku >= 1.4",
+]
 
-[tool.poetry.group.dev.dependencies]
-pytest = "*"
-black = "*"
-flake8 = "*"
-mypy = "*"
+[project.optional-dependencies]
+postgres = ["psycopg2-binary >=2.9"]
+mysql = ["mysqlclient >=2.1"]
+sqlite_async = ["aiosqlite >=0.18"]
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
+requires = ["poetry-core>=1.0"]
 build-backend = "poetry.core.masonry.api"
+
+# Poetry 仍用于打包入口与包收集，保持与项目结构一致
+[tool.poetry]
+packages = [
+    { include = "deepinsight" },
+    { include = "integrations" }
+]
+
+[tool.poetry.scripts]
+deepinsight = "deepinsight.cli.main:main"
