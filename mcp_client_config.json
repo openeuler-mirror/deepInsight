@@ -2,14 +2,19 @@
   "mcp-chart": {
     "command": "python",
     "args": [
-      "./integrations/mcps/generate_chart.py"
+      "./integrations/mcps/generate_chart.py",
+      "./config.yaml"
     ],
-    "transport": "stdio"
+    "transport": "stdio",
+    "env": {
+      "PYTHONPATH": "."
+    }
   },
    "conference-static": {
     "command": "python",
     "args": [
-      "./integrations/mcps/conference_paper.py", "./config.yaml"
+      "./integrations/mcps/conference_paper.py", 
+      "./config.yaml"
     ],
     "transport": "stdio",
     "env": {

@@ -11,6 +11,11 @@ class WorkspaceConfig(BaseModel):
         description="Base working directory for outputs and storage",
     )
 
+    chart_image_dir: str = Field(
+        default="charts",
+        description="Relative image save directory under work_root",
+    )
+
     conference_ppt_template_path: str | None = Field(
         default=None,
         description="PPT 模板路径（用于会议洞察报告生成）",

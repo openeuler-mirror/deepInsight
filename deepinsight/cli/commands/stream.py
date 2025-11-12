@@ -62,8 +62,6 @@ class REPORT_STEPS(Enum):
 
 # --- Moved from report_io.py ---
 DEFAULT_OUTPUT_DIR = "./reports"
-PDF_DIR = "pdf"
-MARKDOWN_DIR = "markdown"
 
 
 class Progress:
@@ -171,19 +169,21 @@ def _get_workspace_root() -> str:
 
 
 def get_with_md_file_name(origin_name: str, conversation_id: str):
+    """Return Markdown path directly under the conversation root directory."""
     base_name = os.path.basename(origin_name)
     work_root = _get_workspace_root()
-    md_dir = os.path.join(work_root, "conference_report_result", conversation_id, MARKDOWN_DIR)
-    os.makedirs(md_dir, exist_ok=True)
-    return os.path.join(md_dir, base_name + ".md")
+    convo_dir = os.path.join(work_root, "conference_report_result", conversation_id)
+    os.makedirs(convo_dir, exist_ok=True)
+    return os.path.join(convo_dir, base_name + ".md")
 
 
 def get_with_pdf_file_name(origin_name: str, conversation_id: str):
+    """Return PDF path directly under the conversation root directory."""
     base_name = os.path.basename(origin_name)
     work_root = _get_workspace_root()
-    pdf_dir = os.path.join(work_root, "conference_report_result", conversation_id, PDF_DIR)
-    os.makedirs(pdf_dir, exist_ok=True)
-    return os.path.join(pdf_dir, base_name + ".pdf")
+    convo_dir = os.path.join(work_root, "conference_report_result", conversation_id)
+    os.makedirs(convo_dir, exist_ok=True)
+    return os.path.join(convo_dir, base_name + ".pdf")
 
 
 def write_result(
@@ -353,12 +353,89 @@ async def _process_request(service: ResearchService, request: ResearchRequest, l
                             accumulated_texts[msg_id] = msg.content.text or ""
                             live.update("")
                             live.console.print(f"[bold blue]💬 正在接收消息流，请稍候...[/bold blue]")
-                        accumulated_texts[msg_id] += msg.content.text
-                        if accumulated_texts[msg_id] and accumulated_texts[msg_id].startswith("[][][]"):
-                            text = Text("", style="cyan")
-                        else:
-                            text = Text(accumulated_texts[msg_id], style="cyan")
+                        chunk_text = msg.content.text or ""
+                        # 处理占位符，避免整条消息被隐藏
+                        if chunk_text.startswith("[][][]"):
+                            chunk_text = chunk_text[len("[][][]"):]
+                        if accumulated_texts[msg_id].startswith("[][][]"):
+                            accumulated_texts[msg_id] = accumulated_texts[msg_id][len("[][][]"):]
+                        accumulated_texts[msg_id] += chunk_text
+                        text = Text(accumulated_texts[msg_id], style="cyan")
                         panel = Panel(text, title=f"Message", border_style="blue", expand=True)
+                        live.update(panel)
+
+            elif stream_event.event == EventType.thinking_step_topic:
+                for msg in stream_event.messages:
+                    if msg.content_type == MessageContentType.plain_text:
+                        msg_id = msg.id or str(uuid.uuid4())
+                        if msg_id not in accumulated_texts:
+                            accumulated_texts[msg_id] = ""
+                            live.update("")
+                            live.console.print(f"[bold blue]🧭 正在梳理阶段主题...[/bold blue]")
+                        chunk_text = msg.content.text or ""
+                        if chunk_text.startswith("[][][]"):
+                            chunk_text = chunk_text[len("[][][]"):]
+                        if accumulated_texts[msg_id].startswith("[][][]"):
+                            accumulated_texts[msg_id] = accumulated_texts[msg_id][len("[][][]"):]
+                        accumulated_texts[msg_id] += chunk_text
+                        text = Text(accumulated_texts[msg_id], style="cyan")
+                        panel = Panel(text, title="阶段主题", border_style="blue", expand=True)
+                        live.update(panel)
+
+            elif stream_event.event == EventType.thinking_report_outline_generating:
+                progress_show.set_step(REPORT_STEPS.OUTLINE_GENERATION.value)
+                for msg in stream_event.messages:
+                    if msg.content_type == MessageContentType.plain_text:
+                        msg_id = msg.id or str(uuid.uuid4())
+                        if msg_id not in accumulated_texts:
+                            accumulated_texts[msg_id] = ""
+                            live.update("")
+                            live.console.print(f"[bold blue]📑 正在生成报告大纲...[/bold blue]")
+                        chunk_text = msg.content.text or ""
+                        if chunk_text.startswith("[][][]"):
+                            chunk_text = chunk_text[len("[][][]"):]
+                        if accumulated_texts[msg_id].startswith("[][][]"):
+                            accumulated_texts[msg_id] = accumulated_texts[msg_id][len("[][][]"):]
+                        accumulated_texts[msg_id] += chunk_text
+                        text = Text(accumulated_texts[msg_id], style="cyan")
+                        panel = Panel(text, title="大纲生成中", border_style="blue", expand=True)
+                        live.update(panel)
+
+            elif stream_event.event == EventType.report_chunk:
+                progress_show.set_step(REPORT_STEPS.REPORT_GENERATION.value)
+                for msg in stream_event.messages:
+                    if msg.content_type == MessageContentType.plain_text:
+                        msg_id = msg.id or str(uuid.uuid4())
+                        if msg_id not in accumulated_texts:
+                            accumulated_texts[msg_id] = ""
+                            live.update("")
+                            live.console.print(f"[bold blue]📝 正在生成报告内容...[/bold blue]")
+                        chunk_text = msg.content.text or ""
+                        if chunk_text.startswith("[][][]"):
+                            chunk_text = chunk_text[len("[][][]"):]
+                        if accumulated_texts[msg_id].startswith("[][][]"):
+                            accumulated_texts[msg_id] = accumulated_texts[msg_id][len("[][][]"):]
+                        accumulated_texts[msg_id] += chunk_text
+                        text = Text(accumulated_texts[msg_id], style="cyan")
+                        panel = Panel(text, title="报告生成中", border_style="blue", expand=True)
+                        live.update(panel)
+
+            elif stream_event.event == EventType.message_chunk:
+                for msg in stream_event.messages:
+                    if msg.content_type == MessageContentType.plain_text:
+                        msg_id = msg.id or str(uuid.uuid4())
+                        if msg_id not in accumulated_texts:
+                            accumulated_texts[msg_id] = ""
+                            live.update("")
+                            live.console.print(f"[bold blue]💬 正在接收消息流，请稍候...[/bold blue]")
+                        chunk_text = msg.content.text or ""
+                        if chunk_text.startswith("[][][]"):
+                            chunk_text = chunk_text[len("[][][]"):]
+                        if accumulated_texts[msg_id].startswith("[][][]"):
+                            accumulated_texts[msg_id] = accumulated_texts[msg_id][len("[][][]"):]
+                        accumulated_texts[msg_id] += chunk_text
+                        text = Text(accumulated_texts[msg_id], style="cyan")
+                        panel = Panel(text, title="Message", border_style="blue", expand=True)
                         live.update(panel)
 
             elif stream_event.event == EventType.thinking_tool_calls:
@@ -394,16 +471,18 @@ async def _process_request(service: ResearchService, request: ResearchRequest, l
                 for msg in stream_event.messages:
                     if msg.content_type == MessageContentType.tool_call and msg.content.tool_calls:
                         tool_calls = msg.content.tool_calls
-                        for msg_id, message_tool_calls in accumulated_tool_calls.items():
-                            for each in message_tool_calls:
-                                for tool_call in tool_calls:
+                        for tool_call in tool_calls:
+                            find_tool_call = None
+                            for msg_id, message_tool_calls in accumulated_tool_calls.items():
+                                for each in message_tool_calls:
                                     if each.id == tool_call.id:
                                         each.result = tool_call.result
-                                        live.update("")
-                                        live.console.print(
-                                            f"[bold blue]✅ 工具 {each.name} 执行完成[/bold blue]"
-                                        )
+                                        find_tool_call = each
                                         break
+                            live.update("")
+                            live.console.print(
+                                f"[bold blue]✅ 工具 {find_tool_call.name if find_tool_call else tool_call.name} 执行完成[/bold blue]"
+                            )
 
             elif stream_event.event == EventType.final_report:
                 if not is_gen_report:

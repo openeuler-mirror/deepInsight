@@ -21,6 +21,8 @@ workspace:
   work_root: ./data
   # 会议洞察报告 PPT 模板路径（支持环境变量展开，如 ${PPT_TEMPLATE_PATH}）
   conference_ppt_template_path: ./templates/conference_template.pptx
+  # 图表图片保存目录（相对 work_root）
+  chart_image_dir: charts
 
 # RAG 相关工作路径配置
 # 将作为所有 RAG 本地数据的前缀目录，例如：
@@ -65,22 +67,10 @@ scenarios:
       text:
         clarify_with_user: true
         write_research_brief: true
-        researcher_tools: true
-        publish_result: true
         compress_research: true
         generate_report_outline: true
-        tools: true
-        researcher: true
-        model: true
-        agent: true
       tool_call:
         clarify_with_user: true
         write_research_brief: true
-        researcher: true
-        researcher_tools: true
-        publish_result: true
         compress_research: true
         generate_report_outline: true
-        tools: true
-        model: true
-        agent: true

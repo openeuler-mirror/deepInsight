@@ -74,7 +74,6 @@ def analyze_single_keynote(keynote_info: str, output_dir: str, config: RunnableC
         bool: True表示解析成功并保存，False表示解析失败
     """
     try:
-        print(f"begin to analyze_single_keynote: {keynote_info}")
         rc = parse_research_config(config)
         tools = register_fs_tools(fs_instance)
 
