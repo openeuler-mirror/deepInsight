@@ -247,8 +247,8 @@ async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
     ).format()
     output_file = f"/{str(rc.run_id)}/conference_summary.md"
     logging.debug(
-        f"conference_best_papers_summary:{state['conference_best_papers_summary']}, conference_topic:{state['conference_topic']}")
-    user_prompt = f"学术会议价值论文列表：{state['conference_best_papers_summary']},会议主题相关信息：{state['conference_topic']},保存到路径：{output_file} "
+        f"conference_best_papers_summary:{state['conference_best_papers_summary']}, conference_topic:{state.get('conference_topic', '')}")
+    user_prompt = f"学术会议价值论文列表：{state['conference_best_papers_summary']},会议主题相关信息：{state.get('conference_topic', '')},保存到路径：{output_file} "
     tools = register_fs_tools(fs_instance)
     tool_instance = TavilySearch(
         max_results=2,

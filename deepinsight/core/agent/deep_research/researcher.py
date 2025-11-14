@@ -138,11 +138,19 @@ async def topic_researcher(state: ResearcherState, config: RunnableConfig) -> Co
         group=rc.prompt_group,
     )
 
-    # Prepare system prompt with MCP context if available
-    researcher_prompt = researcher_prompt_template.format(
-        mcp_prompt="",
-        date=get_today_str()
-    )
+    if rc.prompt_group == "conference_best_papers":
+        # Prepare system prompt with MCP context if available
+        researcher_prompt = researcher_prompt_template.format(
+            mcp_prompt="",
+            date=get_today_str(),
+            output_dir=f"/{str(rc.run_id)}/{rc.prompt_group}"
+        )
+    else:
+        # Prepare system prompt with MCP context if available
+        researcher_prompt = researcher_prompt_template.format(
+            mcp_prompt="",
+            date=get_today_str()
+        )
 
     llm = rc.get_model()
     # Configure model with tools, retry logic, and settings
