@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import List, Optional, Tuple, Dict, Any
+from enum import Enum
 
 from pydantic import BaseModel, Field, ConfigDict
 from deepinsight.service.schemas.common import OwnerType
@@ -64,6 +65,12 @@ class KnowledgeSearchRequest(BaseModel):
 
 
 # ===== 响应模型 =====
+class KnowledgeDocStatus(str, Enum):
+    pending = "pending"
+    processing = "processing"
+    parsed = "parsed"
+    failed = "failed"
+
 class KnowledgeBaseResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     kb_id: int
@@ -82,12 +89,12 @@ class KnowledgeBaseResponse(BaseModel):
 
 
 class KnowledgeDocumentResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, use_enum_values=True)
     doc_id: int
     kb_id: int
     file_path: str
     file_name: str
-    parse_status: str
+    parse_status: KnowledgeDocStatus
     chunks_count: int
     extracted_text: Optional[str] = None
     # New: expose parsed documents from LangChain loaders for downstream processing

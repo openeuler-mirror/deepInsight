@@ -21,6 +21,7 @@ from deepinsight.service.schemas.knowledge import (
     KnowledgeDeleteRequest,
     BeginProcessingRequest,
     KnowledgeSearchRequest,
+    KnowledgeDocStatus,
 )
 from deepinsight.service.rag import RAGEngine
 from deepinsight.service.schemas.rag import DocumentPayload, Passage
@@ -127,11 +128,15 @@ class KnowledgeService:
                     origin="knowledge",
                 )
                 idx = await self._rag_engine.ingest_document(payload, working_dir)
-                doc.parse_status = "parsed"
+                doc.parse_status = (
+                    idx.process_status.value if hasattr(idx.process_status, "value") else idx.process_status
+                ) or doc.parse_status
+                if doc.parse_status == "failed" and hasattr(doc, "failed_reason") and not getattr(doc, "failed_reason", None):
+                    doc.failed_reason = "LightRAG reported failed"
                 doc.chunks_count = idx.chunks_count
                 extracted_text = idx.extracted_text
             except Exception as e:
-                doc.parse_status = "failed"
+                doc.parse_status = KnowledgeDocStatus.failed.value
                 if hasattr(doc, "failed_reason"):
                     doc.failed_reason = str(e)
                 raise
@@ -253,4 +258,54 @@ class KnowledgeService:
 
     async def delete_kb(self, req: KnowledgeDeleteRequest) -> bool:
         return await self.cleanup_kb(req.kb_id)
+
+    async def retry_unfinished_docs(self, kb_id: int, reporter: Optional[ProgressReporter] = None) -> int:
+        with self._db.get_session() as session:
+            kb, working_dir = await self._get_or_create_rag_for_kb(session, kb_id)
+            from deepinsight.databases.models.knowledge import KnowledgeDocument
+            docs = (
+                session.query(KnowledgeDocument)
+                .filter(
+                    KnowledgeDocument.kb_id == kb_id,
+                    KnowledgeDocument.parse_status.in_(["failed", "pending", "processing"]),
+                )
+                .all()
+            )
+            total = len(docs)
+            if reporter is not None and total > 0:
+                reporter.begin(total=total, description="Retrying unfinished documents")
+            for doc in docs:
+                try:
+                    doc.parse_status = KnowledgeDocStatus.processing.value
+                    session.add(doc)
+                    session.flush()
+
+                    payload = DocumentPayload(
+                        doc_id=str(doc.doc_id),
+                        raw_text="",
+                        source_path=doc.file_path,
+                        title=doc.file_name or os.path.basename(doc.file_path),
+                        hash=doc.md5,
+                        origin="knowledge_retry",
+                    )
+                    idx = await self._rag_engine.ingest_document(payload, working_dir)
+                    doc.parse_status = (
+                        idx.process_status.value if hasattr(idx.process_status, "value") else idx.process_status
+                    ) or doc.parse_status
+                    if doc.parse_status == KnowledgeDocStatus.failed.value and not getattr(doc, "failed_reason", None):
+                        doc.failed_reason = "Retry failed"
+                    doc.chunks_count = idx.chunks_count
+                    session.commit()
+                    session.refresh(doc)
+                except Exception as e:
+                    doc.parse_status = KnowledgeDocStatus.failed.value
+                    if hasattr(doc, "failed_reason"):
+                        doc.failed_reason = str(e)
+                    session.commit()
+                finally:
+                    if reporter is not None:
+                        reporter.advance(step=1, detail=f"Processed: {os.path.basename(doc.file_path)}")
+            if reporter is not None and total > 0:
+                reporter.complete()
+            return total
         
