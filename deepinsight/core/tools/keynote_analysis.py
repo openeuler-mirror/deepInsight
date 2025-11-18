@@ -99,7 +99,7 @@ def analyze_single_keynote(keynote_info: str, output_dir: str, config: RunnableC
         agent = create_deep_agent(
             model=rc.default_model,
             tools=tools,
-            instructions=prompt_content,
+            system_prompt=prompt_content,
         )
         input_messages = [
             {

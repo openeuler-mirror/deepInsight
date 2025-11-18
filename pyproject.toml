@@ -46,11 +46,12 @@ dependencies = [
   "fastmcp >= 2.0",
   "arxiv >= 2.0",
   "kaleido == 0.2.1",
-  "deepagents >= 0.0.5",
+  "deepagents >= 0.2",
   "python-pptx >= 1.0",
   "plotly >= 6.0",
   "camel-ai == 0.2.60",
   "lightrag-hku >= 1.4",
+  "wordcloud >= 1.0",
 ]
 
 [project.optional-dependencies]

@@ -426,11 +426,15 @@ class StreamEventAdapter:
         node_name = metadata.get("langgraph_node")
         if node_name is None:
             return False
+        if "." in node_name:
+            node_name = node_name.split(".", 1)[0]
         return node_name in self.text_stream_block_nodes
 
     def _should_filter_tool_call_stream_event(self, metadata: dict) -> bool:
         node_name = metadata.get("langgraph_node")
         if node_name is None:
             return False
+        if "." in node_name:
+            node_name = node_name.split(".", 1)[0]
         return node_name in self.tool_call_stream_block_nodes
     

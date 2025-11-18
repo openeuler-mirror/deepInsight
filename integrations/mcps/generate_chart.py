@@ -151,27 +151,39 @@ def generate_bar_chart(
         data: list,
         axisYTitle: str,
         stack: bool = False,
-        width: int = 600,
+        width: int = 1000,
         axisXTitle: str = "",
         title: str = "",
         group: bool = False,
-        height: int = 400
+        height: int = 600,
+        horizontal: bool = True,
+        dtick: int = 1  # ✅ Optional tick interval, default 1
 ) -> str:
     """
     Generate a bar chart to show data for numerical comparisons among different categories,
-    such as, comparing categorical data and for horizontal comparisons.
+    such as comparing categorical data and for horizontal comparisons.
 
     Parameters:
-    data (array): Data for bar chart, such as, [{ category: '分类一', value: 10 }].
-    axisYTitle (string): Set the y-axis title of chart.
-    stack (boolean): Whether stacking is enabled. When enabled, bar charts require a 'group' field in the data.
-                     When `stack` is true, `group` should be false.
-    width (number): Set the width of chart, default is 600.
-    axisXTitle (string): Set the x-axis title of chart.
-    title (string): Set the title of chart.
-    group (boolean): Whether grouping is enabled. When enabled, bar charts require a 'group' field in the data.
-                     When `group` is true, `stack` should be false.
-    height (number): Set the height of chart, default is 400.
+    data (list): Data for bar chart, such as, [{ category: '分类一', value: 10 }].
+    axisYTitle (str): Set the y-axis title of chart.
+    stack (bool): Whether stacking is enabled. When enabled, bar charts require a 'group' field in the data.
+                  When `stack` is true, `group` should be false.
+    width (int): Set the width of chart, default is 1000.
+    axisXTitle (str): Set the x-axis title of chart.
+    title (str): Set the title of chart.
+    group (bool): Whether grouping is enabled. When enabled, bar charts require a 'group' field in the data.
+                  When `group` is true, `stack` should be false.
+    height (int): Set the height of chart, default is 600.
+    horizontal (bool): Whether to display as horizontal bar chart, default True.
+    dtick (int, optional): Interval of ticks on the X-axis, default is 1.
+                           Recommended settings based on number of categories:
+                           5 (for more than 20 categories),
+                           10 (for more than 40 categories),
+                           20 (for more than 80 categories).
+                           Users can configure this value according to actual field conditions.
+
+    Returns:
+    str: Path or identifier of the saved chart (via save_chart).
     """
     if stack and group:
         raise ValueError("stack and group cannot both be true")
@@ -179,17 +191,49 @@ def generate_bar_chart(
     if (stack or group) and not any('group' in item for item in data):
         raise ValueError("When stack or group is true, data must contain 'group' field")
 
+    # Determine category field
     category_key = 'category' if 'category' in data[0] else next(iter(data[0].keys()))
+
+    # Candidate color palette (20 distinguishable colors)
+    candidate_colors = [
+        "#4c72b0", "#55a868", "#c44e52", "#8172b3", "#ccb974",
+        "#64b5cd", "#f28e2b", "#8c564b", "#e15759", "#76b7b2",
+        "#9c755f", "#bab0ac", "#7f7f7f", "#b07aa1", "#ff9da7",
+        "#9edae5", "#bcbd22", "#dbdb8d", "#17becf", "#aec7e8"
+    ]
+
+    if not (stack or group):
+        colors = [candidate_colors[i % len(candidate_colors)] for i in range(len(data))]
+    else:
+        colors = None
 
     fig = px.bar(
         data,
-        x=category_key,
-        y='value',
-        color='group' if stack or group else None,
+        x=category_key if not horizontal else 'value',
+        y='value' if not horizontal else category_key,
+        color='group' if stack or group else category_key,
+        color_discrete_sequence=colors if not (stack or group) else None,
         barmode='stack' if stack else 'group' if group else 'group',
         title=title,
-        labels={category_key: axisXTitle, 'value': axisYTitle}
+        labels={category_key: axisXTitle if not horizontal else axisYTitle,
+                'value': axisYTitle if not horizontal else axisXTitle},
+        orientation='v' if not horizontal else 'h'
     )
+
+    # Add value labels
+    fig.update_traces(text='value', textposition='inside')
+    fig.update_layout(yaxis=dict(categoryorder='total ascending'))
+
+    # Layout configuration
+    fig.update_layout(
+        yaxis=dict(showticklabels=False),
+        template="plotly_white",
+        width=width,
+        height=height
+    )
+
+    # ✅ Configurable X-axis tick interval
+    fig.update_xaxes(dtick=dtick)
 
     return save_chart(fig, width, height)
 
