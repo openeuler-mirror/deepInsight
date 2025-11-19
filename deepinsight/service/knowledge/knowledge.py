@@ -259,9 +259,8 @@ class KnowledgeService:
     async def delete_kb(self, req: KnowledgeDeleteRequest) -> bool:
         return await self.cleanup_kb(req.kb_id)
 
-    async def retry_unfinished_docs(self, kb_id: int, reporter: Optional[ProgressReporter] = None) -> int:
+    async def retry_unfinished_docs(self, kb_id: int, reporter: Optional[ProgressReporter] = None) -> List[KnowledgeDocumentResponse]:
         with self._db.get_session() as session:
-            kb, working_dir = await self._get_or_create_rag_for_kb(session, kb_id)
             from deepinsight.databases.models.knowledge import KnowledgeDocument
             docs = (
                 session.query(KnowledgeDocument)
@@ -271,41 +270,80 @@ class KnowledgeService:
                 )
                 .all()
             )
+            items: List[KnowledgeDocumentResponse] = []
             total = len(docs)
             if reporter is not None and total > 0:
-                reporter.begin(total=total, description="Retrying unfinished documents")
+                reporter.begin(total=total, description="Listing unfinished documents")
             for doc in docs:
-                try:
-                    doc.parse_status = KnowledgeDocStatus.processing.value
-                    session.add(doc)
-                    session.flush()
-
-                    payload = DocumentPayload(
-                        doc_id=str(doc.doc_id),
-                        raw_text="",
-                        source_path=doc.file_path,
-                        title=doc.file_name or os.path.basename(doc.file_path),
-                        hash=doc.md5,
-                        origin="knowledge_retry",
-                    )
-                    idx = await self._rag_engine.ingest_document(payload, working_dir)
-                    doc.parse_status = (
-                        idx.process_status.value if hasattr(idx.process_status, "value") else idx.process_status
-                    ) or doc.parse_status
-                    if doc.parse_status == KnowledgeDocStatus.failed.value and not getattr(doc, "failed_reason", None):
-                        doc.failed_reason = "Retry failed"
-                    doc.chunks_count = idx.chunks_count
-                    session.commit()
-                    session.refresh(doc)
-                except Exception as e:
-                    doc.parse_status = KnowledgeDocStatus.failed.value
-                    if hasattr(doc, "failed_reason"):
-                        doc.failed_reason = str(e)
-                    session.commit()
-                finally:
-                    if reporter is not None:
-                        reporter.advance(step=1, detail=f"Processed: {os.path.basename(doc.file_path)}")
+                resp = KnowledgeDocumentResponse(
+                    doc_id=doc.doc_id,
+                    kb_id=doc.kb_id,
+                    file_path=doc.file_path,
+                    file_name=doc.file_name or os.path.basename(doc.file_path),
+                    parse_status=KnowledgeDocStatus(doc.parse_status),
+                    chunks_count=doc.chunks_count,
+                    extracted_text=None,
+                    documents=None,
+                    created_at=doc.created_at,
+                    updated_at=doc.updated_at,
+                )
+                items.append(resp)
+                if reporter is not None:
+                    reporter.advance(step=1, detail=os.path.basename(doc.file_path))
             if reporter is not None and total > 0:
                 reporter.complete()
-            return total
+            return items
+
+    async def reparse_document(self, kb_id: int, doc_id: int) -> KnowledgeDocumentResponse:
+        with self._db.get_session() as session:
+            kb, working_dir = await self._get_or_create_rag_for_kb(session, kb_id)
+            doc = (
+                session.query(KnowledgeDocument)
+                .filter(KnowledgeDocument.kb_id == kb_id, KnowledgeDocument.doc_id == doc_id)
+                .first()
+            )
+            if not doc:
+                raise ValueError("Document not found")
+            doc.parse_status = KnowledgeDocStatus.processing.value
+            session.add(doc)
+            session.flush()
+            extracted_text: Optional[str] = None
+            idx = None
+            try:
+                payload = DocumentPayload(
+                    doc_id=str(doc.doc_id),
+                    raw_text="",
+                    source_path=doc.file_path,
+                    title=doc.file_name or os.path.basename(doc.file_path),
+                    hash=doc.md5,
+                    origin="knowledge_retry",
+                )
+                idx = await self._rag_engine.ingest_document(payload, working_dir)
+                doc.parse_status = (
+                    idx.process_status.value if hasattr(idx.process_status, "value") else idx.process_status
+                ) or doc.parse_status
+                if doc.parse_status == KnowledgeDocStatus.failed.value and not getattr(doc, "failed_reason", None):
+                    doc.failed_reason = "Retry failed"
+                doc.chunks_count = idx.chunks_count
+                extracted_text = idx.extracted_text
+                session.commit()
+                session.refresh(doc)
+            except Exception as e:
+                doc.parse_status = KnowledgeDocStatus.failed.value
+                if hasattr(doc, "failed_reason"):
+                    doc.failed_reason = str(e)
+                session.commit()
+                raise
+            return KnowledgeDocumentResponse(
+                doc_id=doc.doc_id,
+                kb_id=doc.kb_id,
+                file_path=doc.file_path,
+                file_name=doc.file_name or os.path.basename(doc.file_path),
+                parse_status=KnowledgeDocStatus(doc.parse_status),
+                chunks_count=doc.chunks_count,
+                extracted_text=extracted_text,
+                documents=getattr(idx, "documents", None),
+                created_at=doc.created_at,
+                updated_at=doc.updated_at,
+            )
         

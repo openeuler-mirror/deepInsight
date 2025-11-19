@@ -13,7 +13,7 @@ import os
 import shutil
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Annotated
 from pydantic import BaseModel, Field, ConfigDict, ValidationError, AnyHttpUrl
 
 from langchain_core.messages import HumanMessage
@@ -51,7 +51,7 @@ from deepinsight.utils.progress import ProgressReporter
 from deepinsight.utils.llm_utils import init_langchain_models_from_llm_config
 from deepinsight.service.conference.paper_extractor import PaperExtractionService
 from deepinsight.service.schemas.paper_extract import ExtractPaperMetaRequest, ExtractPaperMetaFromDocsRequest, DocSegment
-
+from deepinsight.core.agent.conference_research.conf_topic import get_conference_topics
 
 class ConferenceService:
     """
@@ -108,12 +108,20 @@ class ConferenceService:
             return ConferenceResponse.model_validate(conf)
 
     # --- Conference Metadata Query (moved from test2.py) ---
-    class _ConferenceMeta(BaseModel):
-        """私有类：仅供 LLM 结构化输出使用"""
+    class _Conf(BaseModel):
         model_config = ConfigDict(extra="forbid")
+
         full_name: str
-        website: AnyHttpUrl | None
-        topics: list[str] = Field(default_factory=list, min_length=1)
+        """Conference's official full name in its native language."""
+        website: Annotated[str, AnyHttpUrl] | None
+        """Conference's official website HTTP/HTTPS URL. Maybe empty."""
+
+
+    class Conference(_Conf):
+        topics: list[str] = Field(default_factory=list, min_length=0)
+
+    class _ConfWithErr(_Conf):
+        error: Annotated[str | None, Field(exclude=True)] = None
 
     class ConferenceQueryException(RuntimeError):
         """A mark meaning the error message can pass out to client."""
@@ -127,11 +135,6 @@ Your task is to search the given conference online and extract structured result
 2. Extract the following metadata fields of the given conference from the search result and your knowledge:
    1. Official full name (in original language provided by the conference organizer/website without translation);
    2. Official website http/https URL (if found, else leave it be null);
-   3. All topics received by the conference in the specified year as a list of string.
-      - If the official topics have multiple levels, only the top-level topics are returned.
-      - If there's a search result like "Topic of XXX is A, B, C, and D", you should regard it as 4 topics \
-        and returning ["A", "B", "C", "D"], while "E, F and G" should return ["E", "F and G"]. Cause topics \
-        in a sentence are usually separated by a series of commas.
 3. If tool call fail, output an error message about the reason via "error" (but you still need to output an empty \
 string as "full_name"). In all other cases, "full_name" must not be empty, and you do not need to output "error."
 
@@ -141,16 +144,40 @@ Return your answer strictly following this JSON structure:
 {
     "full_name": "",
     "website": "",
-    "topics": []
     "error": ""
 }
 
 ---
 
 ## Example
+
+### Input
+Give me the information about OSP in 2025.
+
+### Search Tool Returns
+[
+    {
+        "content": "OSP takes a broad view of systems and solicits contributions from many fields including: \
+operating systems, file and storage systems, and troubleshooting of complex systems. We also welcome work that \
+explores the interaction of computer systems with related areas such as computer architecture and databases."
+    },
+    {
+        "content": "OSP(2025) website: https://example.com/2025/index.html"
+    },
+    {
+        "source": "https://example.com/2025/index.html",
+        "content": "OSP 2025\\nThe 3rd Operating Systems Principles\\n...."
+    }
+]
+
+### Final Output (no "error" because everything is OK)
+{
+    "full_name": "The 3rd Operating Systems Principles",
+    "website": "https://example.com/2025/index.html"
+}
 """
 
-    async def _query_conference_meta(self, short_name: str, year: int) -> "_ConferenceMeta":
+    async def _query_conference_meta(self, short_name: str, year: int):
         # Initialize LLM
         _, llm = init_langchain_models_from_llm_config(self._config.llms)
         
@@ -172,9 +199,10 @@ Return your answer strictly following this JSON structure:
             model=llm, 
             tools=tools, 
             system_prompt=self._QUERY_METADATA_SYSTEM_PROMPT,
-            response_format=ToolStrategy(self._ConferenceMeta),
+            response_format=ToolStrategy(self._ConfWithErr),
         )
 
+        base_meta = self._Conf(full_name=short_name, website=None)
         user_query = f"Give me the information about {short_name} in {year}."
         try:
             # Prefer the agent's native async invocation contract
@@ -185,9 +213,23 @@ Return your answer strictly following this JSON structure:
                     ]
                 ),
             )
-            return result["structured_response"]
+            result = result["structured_response"]
+            if result.error:
+                logging.error(f"Search conference info failed: {result.error}")
+                raise self.ConferenceQueryException("Search conference info failed")
         except Exception as err:
+            logging.error(f"Search conference info failed: {err}")
             raise self.ConferenceQueryException(str(err))
+        base_meta = result
+        user_query = f"Give me the topics of {short_name} in {year}."
+        topics = []
+        try:
+            topics = await get_conference_topics(user_query, llm)
+        except Exception as err:
+            logging.error(f"Get conference topics failed: {err}")
+            raise
+        metadata = self.Conference(full_name=base_meta.full_name, website=base_meta.website, topics=topics)
+        return metadata
 
     async def list_conferences(self, query: ConferenceListRequest) -> ConferenceListResponse:
         with self._db.get_session() as db:  # type: Session
@@ -308,14 +350,45 @@ Return your answer strictly following this JSON structure:
 
         # Before incremental ingestion: retry unfinished docs if any
         if kb is not None:
-            try:
-                await self._knowledge.retry_unfinished_docs(kb.kb_id, reporter=reporter)
-            except Exception:
-                logging.exception("Retry unfinished documents failed; continue with incremental ingestion")
+            await self._reparse_unfinished_docs_for_conference(kb.kb_id, conf_id, reporter)
 
         # Incremental ingestion path
         await self._incremental_ingest_for_conference(kb, conf_id, req, reporter)
         return
+
+    async def _reparse_unfinished_docs_for_conference(self, kb_id: int, conference_id: int, reporter: Optional[ProgressReporter]) -> None:
+        try:
+            docs = await self._knowledge.retry_unfinished_docs(kb_id, reporter=reporter)
+            if docs:
+                if reporter is not None:
+                    reporter.begin(total=len(docs), description="Reparsing unfinished documents")
+                for d in docs:
+                    doc_resp = await self._knowledge.reparse_document(kb_id, d.doc_id)
+                    try:
+                        if getattr(doc_resp, "documents", None):
+                            await self._paper_extractor.extract_and_store_from_documents(
+                                ExtractPaperMetaFromDocsRequest(
+                                    conference_id=conference_id,
+                                    filename=doc_resp.file_name,
+                                    documents=[DocSegment(content=dd.get("page_content", ""), metadata=dd.get("metadata", {})) for dd in (doc_resp.documents or [])],
+                                )
+                            )
+                        elif doc_resp.extracted_text:
+                            await self._paper_extractor.extract_and_store(
+                                ExtractPaperMetaRequest(
+                                    conference_id=conference_id,
+                                    filename=doc_resp.file_name,
+                                    paper=doc_resp.extracted_text,
+                                )
+                            )
+                    except Exception:
+                        logging.exception("Paper metadata extraction failed for %s", doc_resp.file_name)
+                    if reporter is not None:
+                        reporter.advance(step=1, detail=doc_resp.file_name)
+                if reporter is not None:
+                    reporter.complete()
+        except Exception:
+            logging.exception("Retry unfinished documents failed; continue with incremental ingestion")
 
     def _list_files(self, base: str, exts: tuple[str, ...]) -> list[str]:
         files: list[str] = []

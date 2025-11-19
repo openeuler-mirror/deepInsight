@@ -57,22 +57,15 @@ def init_langchain_models_from_llm_config(
     for each in llm_config:
         key = f"{each.type}:{each.model}"
         settings_kwargs = _normalize_settings_kwargs(each.setting)
+        settings_kwargs.setdefault("timeout", 300)
         try:
-            if settings_kwargs:
-                model = init_chat_model(
-                    model_provider=each.type,
-                    model=each.model,
-                    api_key=each.api_key,
-                    base_url=each.base_url,
-                    **settings_kwargs,
-                )
-            else:
-                model = init_chat_model(
-                    model_provider=each.type,
-                    model=each.model,
-                    api_key=each.api_key,
-                    base_url=each.base_url,
-                )
+            model = init_chat_model(
+                model_provider=each.type,
+                model=each.model,
+                api_key=each.api_key,
+                base_url=each.base_url,
+                **settings_kwargs,
+            )
             models[key] = model
             if not default_model:
                 default_model = model
@@ -83,19 +76,12 @@ def init_langchain_models_from_llm_config(
             logging.warning(
                 f"Cannot directly init model {key} via init_chat_model, falling back to ChatOpenAI. Error: {e}"
             )
-            if settings_kwargs:
-                model = ChatOpenAI(
-                    model=each.model,
-                    api_key=each.api_key,
-                    base_url=each.base_url,
-                    **settings_kwargs,
-                )
-            else:
-                model = ChatOpenAI(
-                    model=each.model,
-                    api_key=each.api_key,
-                    base_url=each.base_url,
-                )
+            model = ChatOpenAI(
+                model=each.model,
+                api_key=each.api_key,
+                base_url=each.base_url,
+                **settings_kwargs,
+            )
             models[key] = model
             if not default_model:
                 default_model = model
@@ -192,8 +178,8 @@ def init_lightrag_llm_model_func(cfg: Config) -> Callable[..., Any]:
         )
 
     def llm_model_func(prompt, system_prompt=None, history_messages=[], **kwargs):
-        # Merge default cfg settings with runtime kwargs (runtime overrides default)
         merged_kwargs = {**cfg_kwargs, **kwargs}
+        merged_kwargs.setdefault("timeout", 300)
 
         return openai_complete_if_cache(
             model_name,

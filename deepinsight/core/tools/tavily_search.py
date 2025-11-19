@@ -61,23 +61,33 @@ async def tavily_search_async(
     tavily_client = AsyncTavilyClient(api_key=get_tavily_api_key(config))
 
     # Create search tasks for parallel execution
-    search_tasks = [
-        tavily_client.search(
-            query,
-            max_results=max_results,
-            include_raw_content=include_raw_content,
-            topic=topic,
-            include_favicon=True,
-            search_depth="advanced",
-            include_images=True,
-            include_image_descriptions=True,
-        )
-        for query in search_queries
-    ]
+    search_tasks = []
+    for query in search_queries:
+        try:
+            search_tasks.append(
+                tavily_client.search(
+                    query,
+                    max_results=max_results,
+                    include_raw_content=include_raw_content,
+                    topic=topic,
+                    include_favicon=True,
+                    search_depth="advanced",
+                    include_images=True,
+                    include_image_descriptions=True,
+                )
+            )
+        except Exception as e:
+            logging.error(f"Failed to initialize Tavily search task: {type(e).__name__}: {e}")
 
     # Execute all search queries in parallel and return results
-    search_results = await asyncio.gather(*search_tasks)
-    return search_results
+    results_or_errors = await asyncio.gather(*search_tasks, return_exceptions=True)
+    valid_results = []
+    for item in results_or_errors:
+        if isinstance(item, Exception):
+            logging.error(f"Tavily search error: {type(item).__name__}: {item}")
+            continue
+        valid_results.append(item)
+    return valid_results
 
 
 async def summarize_webpage(model: BaseChatModel, webpage_content: str, rc: ResearchConfig) -> str:
@@ -145,21 +155,37 @@ async def tavily_search(
         Formatted string containing summarized search results
     """
     # Step 1: Execute search queries asynchronously
-    search_results = await tavily_search_async(
-        queries,
-        max_results=1,
-        topic=topic,
-        include_raw_content=True,
-        config=config
-    )
+    try:
+        search_results = await tavily_search_async(
+            queries,
+            max_results=1,
+            topic=topic,
+            include_raw_content=True,
+            config=config
+        )
+    except Exception as e:
+        logging.error(f"Tavily search failed: {type(e).__name__}: {e}")
+        search_results = []
 
     # Step 2: Deduplicate results by URL to avoid processing the same content multiple times
     unique_results = {}
+    reference_images = {}
     for response in search_results:
-        for result in response['results']:
-            url = result['url']
-            if url not in unique_results:
-                unique_results[url] = {**result, "query": response['query']}
+        try:
+            for result in (response.get('results') or []):
+                url = result.get('url')
+                if not url:
+                    continue
+                if url not in unique_results:
+                    unique_results[url] = {**result, "query": response.get('query')}
+            images = response.get("images", [])
+            if images:
+                for idx, img in enumerate(images, 1):
+                    description = img.get("description") or "No description provided."
+                    reference_images[f"{img['url']}"] = description
+
+        except Exception as parse_err:
+            logging.error(f"Parse Tavily response failed: {type(parse_err).__name__}: {parse_err}")
 
     # Send tool call result
     writer = get_stream_writer()
@@ -230,14 +256,11 @@ async def tavily_search(
         formatted_output += f"SUMMARY:\n{result['content']}\n\n"
         formatted_output += "\n\n" + "-" * 80 + "\n"
     
-    images = response.get("images", [])
-    reference_images = {}
-    if images:
+    if reference_images:
         formatted_output += "RELATED IMAGES:\n"
-        for idx, img in enumerate(images, 1):
-            description = img.get("description") or "No description provided."
-            formatted_output += f"  [{idx}] {img['url']}\n      ↳ {description}\n"
-            reference_images[f"{img['url']}"] = description
+        for idx, img in enumerate(reference_images.items(), 1):
+            url, description = img
+            formatted_output += f"  [{idx}] {url}\n      ↳ {description}\n"
         formatted_output += "\n"
 
     return dict(

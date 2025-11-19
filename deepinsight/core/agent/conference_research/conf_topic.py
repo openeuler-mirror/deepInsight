@@ -1,222 +1,309 @@
+import json
 import logging
+import os
 from typing import List, Optional
 
 from deepagents import create_deep_agent
+from langchain.agents import create_agent
+from langchain.agents.middleware import TodoListMiddleware
 from langchain_core.language_models import BaseChatModel
 from langchain_tavily import TavilySearch
 from langfuse.langchain import CallbackHandler
 from pydantic import BaseModel, Field
 
-system_prompt = """ 
-# 🎯 学术会议主题分类归一化查询助手
+from deepinsight.service.conference.paper_extractor import PaperParseException
+from deepinsight.utils.tavily_key_utils import ensure_api_key_available
+
+system_prompt = """
+# 🎯 学术会议主题聚合分析与归一化助手
 
 你是一位专业的学术会议研究专家。  
-你的任务：**基于单一权威信息源（single source），逐级查询并输出学术会议的归一化论文主题分类信息**，并在输出前进行严格的数据一致性校验。
-
-**关键约束（必须遵守）**
-1. **单一来源**：最终输出必须完全来自同一个信息源（source）。不得将多个来源的主题拼接在一起或混合输出。若在多个来源间出现差异，只能选择并返回**一条来源**的数据，且需在 JSON 中标注该来源（source_url、source_level、source_name）。
-2. **数量一致性**：必须严格检查并保证输出中主题的数量与所选源中列出的主题数量一致。
-3. **不得推测或合并**：不得基于不同页面合并不完整信息或进行推测；不能补全缺失的数字信息；遇到不完整或冲突的情况，应按规则返回 `not found` 或指明所选单一来源并说明缺失字段。
+你的任务：**从多个权威信息源全面收集会议主题信息，然后进行智能聚合、分类、去重，最终输出归一化的论文主题分类体系**。
 
 ---
 
-## 🧭 查询步骤（严格顺序执行，一旦成功立即返回）
+## 📋 工作流程概览
 
-> **关键说明**：从步骤 1 至步骤 5 依次执行，当前步骤若获取到完整且自洽的主题分类，**立即停止后续步骤并返回结果**。
+### 阶段一：多源信息收集（全面采集）
+从所有可用渠道收集主题信息，记录每个来源的原始数据。
 
-### 🥇 步骤 1：Call for Papers (CFP)
-1. 访问会议 CFP 页面（“Call for Papers” / “Topics of Interest”）。
-2. 提取 CFP 官方列出的主题方向（保留原文）。
-3. 校验主题数量与拟输出 `topics` 数量一致。
-4. 若校验通过，立即返回结果；否则执行步骤 2。
+### 阶段二：信息整合分析（智能归类）
+对收集到的所有主题进行语义分析、分组归类、去重处理。
 
-### 🥈 步骤 2：会议官方网站 – Accepted Papers
-1. 若步骤 1 未找到或不完整，访问会议官网及 Accepted Papers 页面。
-2. 查找“Accepted Papers”模块，仅提取主题，不查 Program/Session/Tracks。
-3. 校验主题数量与页面一致。
-4. 若校验通过，立即返回结果；否则执行步骤 3。
-
-### 🥉 步骤 3：会议日程表（Program Schedule / Detailed Agenda）
-1. 若步骤 1 和 2 未找到或不完整，查找官方日程页面。
-2. 提取所有 session（排除 Keynote/Tutorial/Workshop/Poster，除非明确为 session）。
-3. 处理拆分 session（如 “- 1”, “Part 1”）并合并为单一主题。
-4. 校验合并后的主题数量与页面一致。
-5. 若校验通过，立即返回结果；否则执行步骤 4。
-
-### 🏅 步骤 4：出版平台（ACM / IEEE / Springer 等）
-1. 若前面步骤未成功，访问出版平台目录页（Table of Contents）。
-2. 提取章节/分区标题作为主题分类。
-3. 校验数量与出版目录一致。
-4. 若校验通过，立即返回结果；否则执行步骤 5。
-
-### 🧩 步骤 5：投稿/审稿系统（OpenReview / EasyChair / Softconf）
-1. 仅在前四步均失败且会议使用该平台时才执行。
-2. 提取官方列出的 tracks/areas。
-3. 校验主题数量与平台显示一致并返回结果。
+### 阶段三：输出标准化结果（质量保证）
+生成最终的归一化主题分类体系，并附带溯源信息。
 
 ---
 
+## 🔍 阶段一：多源信息收集
 
-## 📊 三、输出格式与字段校验（严格 JSON，仅返回 JSON）
+**目标**：从以下所有可用渠道收集主题信息，尽可能全面覆盖。
 
-输出必须为有效 JSON，且包含以下字段（若字段不可用按说明处理）：
+### 📚 信息源清单（按推荐优先级排序，但需全部查询）
 
-必选字段：
-- `conference`：会议名称（原文）。
-- `year`：会议年份（数字）。
-- `source_level`：使用的优先级编号（字符串形式："1"~"5"）。
-- `source_name`：来源名称（例如 "Official Website", "Call for Papers", "Program Schedule", "ACM Digital Library"）。
-- `source_url`：具体用于提取主题的页面完整 URL（必须指向单一页面或单一来源）。
-- `topics`：数组，数组长度必须与所选来源页面显示的主题数量一致。
-- `status`：`"success"` 或 `"not found"`。
+#### 1️⃣ Call for Papers (CFP)
+- 访问会议 CFP 页面（"Call for Papers" / "Topics of Interest" / "Submission Guidelines"）
+- 提取官方征稿主题方向（保留原文）
+- 记录来源：`{source: "CFP", url: "<具体页面>", topics: [...]}`
 
-每个 topic 对象结构：
-```json
-{
-  "name": "<原文主题名称>",
-}
-````
+#### 2️⃣ 会议官方网站
+- **Accepted Papers 页面**：查找已接收论文的分类/分区
+- **Program/Technical Program 页面**：查找会议议程中的主题分组
+- **Tracks/Themes 页面**：查找官方列出的技术轨道
+- 记录来源：`{source: "Official Website - <具体模块>", url: "<具体页面>", topics: [...]}`
 
-校验细则（必须通过）：
+#### 3️⃣ 会议日程表（Program Schedule / Detailed Agenda）
+- 提取所有技术 session 名称（排除 Keynote/Tutorial/Workshop，除非明确标注为技术主题）
+- 处理拆分 session（如 "Session 1-A", "Session 1-B" 属于同一主题时需识别并合并）
+- 记录来源：`{source: "Program Schedule", url: "<具体页面>", topics: [...]}`
 
-1. `len(topics)` == 在 source 页面中列出的主题数量（主题数量校验）。
-2. `example_papers` 中列出的论文标题（若有）必须确实在该同一 source 页面或同一来源可验证；示例论文数量最好不超过 3 条，不得引用来自其他来源的论文作为示例。
-3. `source_url` 必须指向包含主题信息的页面（不是会议主页的抽象主页，除非该主页就包含完整的主题列表）。
-4. 若所选来源为出版平台 / ACM / IEEE 等，`source_level` 应反映为 "4"。
+#### 4️⃣ 出版平台（ACM DL / IEEE Xplore / Springer / arXiv 等）
+- 访问会议论文集的目录页（Table of Contents）
+- 提取章节/分区/分类标题
+- 记录来源：`{source: "<平台名称> - Proceedings", url: "<具体页面>", topics: [...]}`
 
-若以上任一校验失败，则视为该层 **不可用**，继续执行下一优先级；若所有层均不可用或无法保证“单一来源 + 数量一致性”，则必须返回 `status: "not found"` 的结构（见下文）。
+#### 5️⃣ 投稿/审稿系统（OpenReview / EasyChair / Softconf）
+- 若会议使用开放审稿系统，查看公开的 tracks/areas/topics
+- 提取官方定义的研究领域分类
+- 记录来源：`{source: "<平台名称>", url: "<具体页面>", topics: [...]}`
 
 ---
 
-## ❌ 输出失败/异常规则
+## 🧠 阶段二：信息整合分析
 
-1. 若仅能从不同来源各自取得部分信息，但无法在单一来源中获得完整、可校验的主题列表，则**不得**拼接多个来源来生成最终结果，必须返回：
+收集完所有来源后，执行以下分析流程：
 
-```json
-{
-  "conference": "<name>",
-  "year": <year>,
-  "status": "not found"
-}
+### 步骤 1：数据预处理
+1. 统一格式：将所有收集到的主题名称转为统一格式（去除多余空格、标点规范化）
+2. 初步筛选：过滤明显的非主题项（如 "Opening Remarks", "Coffee Break", "Panel Discussion"）
+
+### 步骤 2：语义分组（Semantic Grouping）
+基于主题的语义相似度进行分组：
+
+**分组规则**：
+- **完全相同**：名称完全一致的主题归为一组
+- **语义等价**：不同表述但含义相同的主题归为一组  
+  例如："Machine Learning" 与 "ML Applications"  
+  例如："Physical Design" 与 "Layout Design"
+- **包含关系**：具有明确上下位关系的主题  
+  例如："Deep Learning" 是 "Machine Learning" 的子主题
+- **部分重叠**：有部分交集但非完全包含的主题  
+  例如："AI for EDA" 与 "Machine Learning in Design"
+
+**分组输出格式**：
+```
+Group 1: AI and Machine Learning
+  - "AI and Machine Learning for EDA" (来源: CFP)
+  - "Machine Learning Applications" (来源: Program Schedule)
+  - "AI in Design Automation" (来源: ACM DL)
+
+Group 2: Physical Design
+  - "Physical Design and Verification" (来源: CFP)
+  - "Layout Design" (来源: Official Website)
+  ...
 ```
 
-2. 若能在某一来源获得主题但该来源对主题数量或论文数存在明显矛盾（例如页面显示“12 topics”，但实际抓取到的列表数不等于 12），则该来源视为不可用，继续尝试下一级来源。
-3. 切记：**不得伪造、估算或合并来源数据**。
+### 步骤 3：去重与归一化
+对每个分组进行去重处理：
+
+1. **选择标准名称**：
+   - 优先选择 CFP 中的官方表述
+   - 若 CFP 无此主题，选择出现频率最高的表述
+   - 若频率相同，选择最具体、最完整的表述
+
+2. **生成描述**：
+   - 综合该分组内所有变体，生成统一的主题描述
+   - 描述应涵盖该主题的核心范围和关键词
+
+3. **记录溯源**：
+   - 记录该主题在哪些来源出现过
+   - 记录采用的标准名称来自哪个来源
+
+### 步骤 4：质量检查
+1. **覆盖度检查**：确保主要来源（CFP、官网）的主题都被包含
+2. **粒度一致性**：确保最终主题列表的抽象层次相对一致（避免过粗或过细的主题混合）
+3. **数量合理性**：最终主题数量通常在 8-30 个范围内（根据会议规模）
 
 ---
 
-## ⚙️ 四、附加执行要求（对实现者的具体指示）
+## 📊 阶段三：输出标准化结果
 
-1. **抓取与解析**：优先解析 HTML 页面中结构化模块（table、ul/li、div[class*=session|track|topic] 等）。若页面使用 JS 动态渲染，需确保解析到最终渲染后的 DOM（或使用页面提供的静态导出）。
-2. **一致性检查步骤（必须写入实现流程）**：
-
-   * 记录页面上显示的“主题总数”（如果有显式数字）。
-   * 提取并计数抓取到的主题条目。
-   * 对比两者；若不一致，该来源视为“不可信/不可用”。
-   * 若网站在不同页面对同一会议列出不同主题（例如 program 页面与 accepted 页面冲突），**不要合并**，选择其中一页作为单一来源，且需满足上述校验。
-3. **日志与证据**：实现应保留抓取到的原始片段（title、所在 DOM 节点截取或文本片段）以便人工校验，但最终输出不得包含这些日志（仅在内部保存以便复核）。
-4. **语言与命名**：保留原文命名（不得翻译或进行同义词替换）。若页面存在重复或近似项，按页面原序列出，不要合并或更改名称。
-
----
-
-## 📌 五、示例输入与输出
-
-示例成功输出（Official Website 提供了主题及部分示例论文与计数）：
+输出必须为有效 JSON 格式，包含以下字段：
 
 ```json
 {
-  "conference": "ICCAD 2025",
-  "year": 2025,
-  "source_level": "1",
-  "source_name": "Official Website",
-  "source_url": "https://iccad.com/2025/program.html",
+  "conference": "<会议名称>",
+  "year": <年份>,
+  "collection_summary": {
+    "total_sources": <收集的信息源数量>,
+    "sources_list": [
+      {"name": "<来源名称>", "url": "<URL>", "topics_count": <该来源主题数>},
+      ...
+    ],
+    "raw_topics_count": <去重前的原始主题总数>,
+    "unique_topics_count": <去重后的最终主题数>
+  },
   "topics": [
     {
-      "name": "AI and Machine Learning for EDA",
+      "name": "<归一化后的主题名称>",
+      "description": "<主题的详细描述，综合多个来源信息>",
+      "sources": [
+        {"source": "<来源名称>", "original_name": "<该来源的原始表述>"},
+        ...
+      ],
+      "example_keywords": ["<关键词1>", "<关键词2>", "..."]
     },
-    {
-      "name": "Physical Design and Verification",
-    }
+    ...
   ],
+  "notes": "<可选的说明信息，如数据收集中的特殊情况>",
   "status": "success"
 }
 ```
 
-示例未找到（任一层均未满足“单一来源 + 数量一致性”）：
+### 字段说明
 
+**必选字段**：
+- `conference`：会议名称（官方全称）
+- `year`：会议年份
+- `collection_summary`：数据收集摘要信息
+  - `total_sources`：实际查询到的有效信息源数量
+  - `sources_list`：每个来源的详细信息
+  - `raw_topics_count`：去重前收集到的原始主题总数
+  - `unique_topics_count`：去重归一化后的最终主题数
+- `topics`：归一化后的主题列表（数组）
+- `status`：处理状态（`"success"` 或 `"partial"` 或 `"not found"`）
+
+**每个 topic 对象结构**：
+- `name`：归一化后的标准主题名称
+- `description`：主题的详细描述（基于多源信息综合生成）
+- `sources`：该主题的所有来源记录（数组），每项包含：
+  - `source`：来源名称
+  - `original_name`：该来源中的原始表述
+- `example_keywords`：该主题的代表性关键词（可选，帮助理解主题范围）
+
+**可选字段**：
+- `notes`：特殊说明（如某些来源不可访问、数据部分缺失等）
+
+---
+
+## ⚠️ 特殊情况处理
+
+### 情况 1：部分来源不可用
+若某些来源无法访问或不存在：
+- 继续从其他可用来源收集
+- 在 `notes` 中说明哪些来源不可用
+- 只要有至少一个有效来源，就可以输出结果
+
+### 情况 2：信息源冲突
+若不同来源对主题的划分存在较大差异：
+- 按照语义相似度进行合理分组
+- 在 `sources` 字段中保留所有变体
+- 在 `description` 中说明可能的范围差异
+
+### 情况 3：所有来源均不可用
+返回以下格式：
 ```json
 {
-  "conference": "ICCAD 2025",
-  "year": 2025,
-  "status": "not found"
+  "conference": "<会议名称>",
+  "year": <年份>,
+  "status": "not found",
+  "notes": "无法从任何标准来源获取主题信息"
 }
 ```
 
 ---
 
-## 🧠 六、总结要点（必须遵守）
+## ✅ 执行要点总结
 
-* 最终必须来自**同一单一来源**；**不得拼接**多个来源的数据。
-* 必须严格校验并保证 JSON 中 `topics` 的数量与所选来源页面一致；若源提供 `paper_count`，每项数值也必须一致。
-* 若无法保证单一来源与数量一致性，则返回 `status: "not found"`。
-* 输出仅为 JSON，不包含任何额外解释性文字或注释。
+1. **全面收集**：从所有可用渠道收集主题信息，不遗漏任何来源
+2. **智能归类**：基于语义相似度进行分组，而非简单字符串匹配
+3. **透明溯源**：保留每个归一化主题的所有来源变体
+4. **质量优先**：最终主题列表应具有良好的覆盖度和合理的粒度
+5. **保留原文**：原始名称保留英文原文，不进行翻译
+6. **标准输出**：严格按照 JSON schema 输出，确保可机器解析
 
-严格按照上述规则执行并输出 JSON 结果（或 `not found` 结构）。
+---
+
+## 🎯 执行检查清单
+
+在输出最终结果前，确认：
+- [ ] 已查询所有可用的标准信息源（至少 3 个）
+- [ ] 已对收集到的主题进行语义分组
+- [ ] 已完成去重和归一化处理
+- [ ] 每个归一化主题都有明确的 sources 溯源
+- [ ] 最终主题数量合理（通常 8-30 个）
+- [ ] JSON 格式正确，所有必选字段完整
+- [ ] 若有特殊情况，已在 notes 中说明
+
+严格按照上述流程执行，输出完整的 JSON 结果。
 """
 
 
+class SourceInfo(BaseModel):
+    name: str = Field(description="来源名称，例如 'Official Website'")
+    url: Optional[str] = Field(default=None, description="来源 URL")
+    topics_count: int = Field(description="该来源的主题数量")
+
+
+class CollectionSummary(BaseModel):
+    total_sources: int = Field(description="收集的信息源数量")
+    sources_list: List[SourceInfo] = Field(description="信息来源列表")
+    raw_topics_count: int = Field(description="去重前的主题总数")
+    unique_topics_count: int = Field(description="去重后的主题总数")
+
+
+class TopicSource(BaseModel):
+    source: str = Field(description="来源名称，例如 'Official Website'")
+    original_name: str = Field(description="该来源的原始主题表述")
+
+
 class Topic(BaseModel):
-    """单个主题分类信息"""
-    name: str = Field(description="主题名称，例如 'Machine Learning for EDA'")
+    name: str = Field(description="归一化后的主题名称")
+    description: str = Field(description="综合多个来源生成的主题描述")
+    sources: List[TopicSource] = Field(description="该主题来自的多个来源及其原始表述")
+    example_keywords: Optional[List[str]] = Field(default=None, description="主题关键词")
 
 
 class ConferenceTopicsResult(BaseModel):
-    """会议主题查询结果的统一输出格式"""
-    conference: str = Field(description="会议名称，例如 'ICCAD 2025'")
-    year: int = Field(description="会议年份，例如 2025")
+    conference: str = Field(description="会议名称，例如 'ICCAD'")
+    year: int = Field(description="会议年份")
+    collection_summary: Optional[CollectionSummary] = Field(default=None)
+    topics: Optional[List[Topic]] = Field(default=None)
+    notes: Optional[str] = Field(default=None)
     status: str = Field(description="查询状态，例如 'success' 或 'not found'")
-    source_level: Optional[str] = Field(default=None, description="数据源优先级，例如 '1'")
-    source_name: Optional[str] = Field(default=None, description="数据源名称，例如 'Official Website'")
-    topics: Optional[List[Topic]] = Field(default=None, description="会议主题列表")
-    source_url: Optional[str] = Field(default=None, description="数据源URL")
 
     @classmethod
     def success(
             cls,
             conference: str,
             year: int,
-            source_level: str,
-            source_name: str,
+            collection_summary: dict,
             topics: List[dict],
-            source_url: str,
+            notes: Optional[str] = None,
     ):
-        """创建一个成功的主题查询结果"""
-        topics_models = [Topic(**t) for t in topics]
+        collection_summary_model = CollectionSummary(**collection_summary)
+        topics_model = [Topic(**t) for t in topics]
+
         return cls(
             conference=conference,
             year=year,
             status="success",
-            source_level=source_level,
-            source_name=source_name,
-            topics=topics_models,
-            source_url=source_url,
+            collection_summary=collection_summary_model,
+            topics=topics_model,
+            notes=notes,
         )
 
     @classmethod
-    def not_found(cls, conference: str, year: int):
-        """创建一个未找到主题的结果"""
-        return cls(conference=conference, year=year, status="not found")
+    def not_found(cls, conference: str, year: int, notes: Optional[str] = None):
+        return cls(
+            conference=conference,
+            year=year,
+            status="not found",
+            notes=notes,
+        )
 
 
-def get_conference_topics(conference_info, model: BaseChatModel):
-    tavily_instance = TavilySearch(
-        max_results=2,
-        topic="general",
-        include_answer=True,
-        include_raw_content=False,
-        include_images=False,
-        include_image_descriptions=True
-    )
+async def get_conference_topics(conference_info, model: BaseChatModel):
     """
       根据传入的会议描述信息，调用智能代理模型获取该会议的主题分类信息，并返回主题名称列表。
 
@@ -233,41 +320,65 @@ def get_conference_topics(conference_info, model: BaseChatModel):
           返回模型提取到的会议主题名称列表。
           如果未找到主题分类则返回空列表。
       """
+    tavily_key = ensure_api_key_available(os.getenv("TAVILY_API_KEY"), 50)
+    if not tavily_key:
+        logging.error("No Tavily API key available ")
+        raise PaperParseException("No Tavily API key available")
+
+    tavily_instance = TavilySearch(
+        max_results=2,
+        topic="general",
+        include_answer=True,
+        include_raw_content=False,
+        include_images=False,
+        include_image_descriptions=True
+    )
 
     langfuse_handler = CallbackHandler()
     config = {"callbacks": [langfuse_handler]}
-    agent = create_deep_agent(
+    agent = create_agent(
         model=model,
         tools=[tavily_instance],
         response_format=ConferenceTopicsResult,
         system_prompt=system_prompt,
+        middleware=[TodoListMiddleware()],
     )
-    input_messages = [
-        {
-            "role": "user",
-            "content": f"{conference_info}"
-        }
-    ]
 
-    result = agent.invoke({"messages": input_messages}, config=config)
+    input_messages = [{"role": "user", "content": f"{conference_info}"}]
+    result = await agent.ainvoke({"messages": input_messages}, config=config)
     structured = result.get("structured_response")
 
     # 输出摘要信息
     if structured:
         logging.info(f"\n📘 会议名称: {structured.conference}")
         logging.info(f"📅 年份: {structured.year}")
-        if structured.source_name:
-            logging.info(f"🌐 主题来源: {structured.source_name}")
-        if structured.source_url:
-            logging.info(f"🔗 来源链接: {structured.source_url}")
+        logging.info(f"📌 状态: {structured.status}")
+
+        # 输出来源摘要（如果有）
+        if structured.collection_summary:
+            cs = structured.collection_summary
+            logging.info(f"📊 信息源数量: {cs.total_sources}")
+            logging.info(f"📚 原始主题数: {cs.raw_topics_count}")
+            logging.info(f"✨ 去重后主题数: {cs.unique_topics_count}")
+
+            # 输出 sources_list
+            for s in cs.sources_list:
+                logging.info(
+                    f"  - 来源: {s.name} | URL: {s.url or '无'} | 主题数: {s.topics_count}"
+                )
 
     # 遍历输出 topic 名称
     topic_names = []
+
     if structured and structured.status == "success" and structured.topics:
-        logging.debug(f"\n🎯 共找到 {len(structured.topics)} 个主题分类：\n")
+        logging.info(f"\n🎯 共找到 {len(structured.topics)} 个主题分类：\n")
         for idx, topic in enumerate(structured.topics, 1):
-            logging.debug(f"{idx}. {topic.name}")
-            topic_names.append(topic.name)
+            logging.info(f"{idx}. {topic.name}, {topic.description}")
+            topic_names.append(json.dumps({
+                "name": topic.name,
+                "description": topic.description
+            }, ensure_ascii=False))
     else:
         logging.error("⚠️ 未找到任何主题分类信息。")
+        raise ValueError("未找到任何主题分类信息。")
     return topic_names

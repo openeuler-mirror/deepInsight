@@ -47,7 +47,7 @@ class AuthorMeta(BaseModel):
 
 
 class AuthorInfo(BaseModel):
-    first_author: AuthorMeta = Field(..., description="Information of the first author")
+    first_author: Optional[AuthorMeta] = Field(None, description="Information of the first author")
     co_first_authors: List[AuthorMeta] = Field(default_factory=list, description="List of co-first authors")
     middle_authors: List[AuthorMeta] = Field(default_factory=list, description="List of middle authors")
     last_authors: List[AuthorMeta] = Field(default_factory=list, description="Information of the last author")
@@ -63,13 +63,9 @@ class PaperMeta(BaseModel):
 
     @property
     def all_authors(self) -> List[AuthorMeta]:
-        return [
-            self.author_info.first_author,
-            *self.author_info.co_first_authors,
-            *self.author_info.middle_authors,
-            *self.author_info.last_authors,
-            *self.author_info.corresponding_authors,
-        ]
+        first = [self.author_info.first_author] if self.author_info.first_author is not None else []
+        return (first + self.author_info.co_first_authors + self.author_info.middle_authors +
+                self.author_info.last_authors + self.author_info.corresponding_authors)
 
 
 class DocSegment(BaseModel):
