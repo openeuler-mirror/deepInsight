@@ -19,6 +19,7 @@ from deepinsight.config.prompt_management_config import PromptManagementConfig
 from deepinsight.config.llm_config import LLMConfig
 from deepinsight.config.scenarios_config import ScenariosConfig
 from deepinsight.config.rag_config import RAGConfig
+from deepinsight.config.workspace_config import WorkspaceConfig
 
 
 class Config(BaseModel):
@@ -41,6 +42,11 @@ class Config(BaseModel):
     rag: RAGConfig = Field(
         default_factory=RAGConfig,
         description="RAG working path configuration",
+    )
+
+    workspace: WorkspaceConfig = Field(
+        default_factory=WorkspaceConfig,
+        description="General workspace path configuration",
     )
 
 
