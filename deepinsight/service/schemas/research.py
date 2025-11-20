@@ -60,3 +60,8 @@ class PPTGenerateRequest(BaseModel):
     conversation_id: str = Field(...,
                                  description="Unique identifier of the conversation")
     args: Optional[ResearchArgs] = Field(None, description="Additional arguments for the conversation")
+
+class PdfGenerateRequest(BaseModel):
+    conversation_id: str = Field(...,
+                                 description="Unique identifier of the conversation")
+    args: Optional[ResearchArgs] = Field(None, description="Additional arguments for the conversation")

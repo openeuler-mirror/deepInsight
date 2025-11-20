@@ -41,8 +41,8 @@ academic_leaders_prompt = r"""
 
 2. **数据库访问方式**（使用 SQLAlchemy Session）：  
    ```python
-   from databases.connection import Database
-   from databases.models.conference_paper import Author, Conference, Paper, PaperAuthorRelation
+   from deepinsight.databases.connection import Database
+   from deepinsight.databases.models.academic import Author, Conference, Paper, PaperAuthorRelation
    from sqlalchemy import select, func, desc, distinct
 
    with Database().get_session() as session:
@@ -51,61 +51,7 @@ academic_leaders_prompt = r"""
 
 3. 数据库模型说明：
 
-```
-class Author(PaperBase):
-    __tablename__ = 'author_table'
-
-    author_id = Column(Integer, primary_key=True, autoincrement=True)
-    author_name = Column(String(100), nullable=False)
-    email = Column(String(255))
-    affiliation = Column(String(255))
-    affiliation_country = Column(String(100))
-    affiliation_city = Column(String(100))
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class Conference(PaperBase):
-    __tablename__ = 'conference_table'
-
-    conference_id = Column(Integer, primary_key=True, autoincrement=True)
-    full_name = Column(String(255), nullable=False)
-    short_name = Column(String(50))
-    year = Column(Integer, nullable=False)
-    location = Column(String(100))
-    start_date = Column(Date)
-    end_date = Column(Date)
-    website = Column(String(255))
-    topics: Mapped[list[str]] = Column(JSON)
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class Paper(PaperBase):
-    __tablename__ = 'paper_table'
-
-    paper_id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String(255), nullable=False)
-    conference_id = Column(Integer)  # 直接存储ID，不使用ForeignKey
-    publication_year = Column(Integer)
-    abstract = Column(Text)
-    keywords = Column(String(255))
-    author_ids = Column(String(500))  # 存储作者ID列表，如 "1,3,5"
-    reference_ids = Column(String(500))  # 存储参考文献ID列表
-    topic = Column(String(100), nullable=True)
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class PaperAuthorRelation(PaperBase):
-    __tablename__ = 'paper_author_relation_table'
-
-    relation_id = Column(Integer, primary_key=True, autoincrement=True)
-    paper_id = Column(Integer)  # 直接存储ID
-    author_id = Column(Integer)  # 直接存储ID
-    author_order = Column(Integer, nullable=False)
-    is_corresponding = Column(Boolean, default=False, nullable=False)
-    created_at = Column(TIMESTAMP, default=datetime.now)
+{{db_models_description}}
 
 ## 🧩 学术角色识别规则（必须严格执行）
 
@@ -484,8 +430,8 @@ high_potential_tech_transfer_prompt = r"""
 
 2. **数据库访问方式**（使用 SQLAlchemy Session）：  
    ```python
-   from databases.connection import Database
-   from databases.models.conference_paper import Author, Conference, Paper, PaperAuthorRelation
+   from deepinsight.databases.connection import Database
+   from deepinsight.databases.models.academic import Author, Conference, Paper, PaperAuthorRelation
    from sqlalchemy import select, func, desc, distinct
 
    with Database().get_session() as session:
@@ -494,61 +440,7 @@ high_potential_tech_transfer_prompt = r"""
 
 3. 数据库模型说明：
 
-```
-class Author(PaperBase):
-    __tablename__ = 'author_table'
-
-    author_id = Column(Integer, primary_key=True, autoincrement=True)
-    author_name = Column(String(100), nullable=False)
-    email = Column(String(255))
-    affiliation = Column(String(255))
-    affiliation_country = Column(String(100))
-    affiliation_city = Column(String(100))
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class Conference(PaperBase):
-    __tablename__ = 'conference_table'
-
-    conference_id = Column(Integer, primary_key=True, autoincrement=True)
-    full_name = Column(String(255), nullable=False)
-    short_name = Column(String(50))
-    year = Column(Integer, nullable=False)
-    location = Column(String(100))
-    start_date = Column(Date)
-    end_date = Column(Date)
-    website = Column(String(255))
-    topics: Mapped[list[str]] = Column(JSON)
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class Paper(PaperBase):
-    __tablename__ = 'paper_table'
-
-    paper_id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String(255), nullable=False)
-    conference_id = Column(Integer)  # 直接存储ID，不使用ForeignKey
-    publication_year = Column(Integer)
-    abstract = Column(Text)
-    keywords = Column(String(255))
-    author_ids = Column(String(500))  # 存储作者ID列表，如 "1,3,5"
-    reference_ids = Column(String(500))  # 存储参考文献ID列表
-    topic = Column(String(100), nullable=True)
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class PaperAuthorRelation(PaperBase):
-    __tablename__ = 'paper_author_relation_table'
-
-    relation_id = Column(Integer, primary_key=True, autoincrement=True)
-    paper_id = Column(Integer)  # 直接存储ID
-    author_id = Column(Integer)  # 直接存储ID
-    author_order = Column(Integer, nullable=False)
-    is_corresponding = Column(Boolean, default=False, nullable=False)
-    created_at = Column(TIMESTAMP, default=datetime.now)
+{{db_models_description}}
 
 ## 🧩 分析流程（Execution Requirements）
 
@@ -724,8 +616,8 @@ institution_overview_prompt = r"""
 
 2. **数据库访问方式**（使用 SQLAlchemy Session）：
    ```python
-   from databases.connection import Database
-   from databases.models.conference_paper import Author, Conference, Paper, PaperAuthorRelation
+   from deepinsight.databases.connection import Database
+   from deepinsight.databases.models.academic import Author, Conference, Paper, PaperAuthorRelation
    from sqlalchemy import select, func, desc, distinct
 
    with Database().get_session() as session:
@@ -776,32 +668,26 @@ institution_overview_prompt = r"""
 
 ## 🧱 输出结构（Output Structure）
 
-1. 图表链接必须使用 **图表生成工具返回的原始链接**，禁止模型自行生成、修改、补全或替换。
-2. 图表链接的结构为：
-   http://<IP:PORT>/api/v1/deepinsight/charts/image/<UUID>
-3. 其中 `<IP:PORT>` 和 `<UUID>` **均由图表生成工具返回**，模型不得推测或伪造。
-4. 输出前需逐字符检查链接，确保与工具返回完全一致。
+1. 图表链接或相对路径必须使用图表生成工具返回的原始值，禁止模型自行生成、修改、补全或替换。
+2. 输出前需逐字符检查链接或路径，确保与工具返回完全一致。
 
 ### 一、图表展示
 
 ** 注意（非常重要）** ：
-1. 图表链接必须使用 **图表生成工具返回的原始链接**，禁止模型自行生成、修改、补全或替换。
-2. 图表链接的结构为：
-   http://<IP:PORT>/api/v1/deepinsight/charts/image/<UUID>
-3. 其中 `<IP:PORT>` 和 `<UUID>` **均由图表生成工具返回**，模型不得推测或伪造。
-4. 输出前需逐字符检查链接，确保与工具返回完全一致。
+1. 图表链接或相对路径必须使用图表生成工具返回的原始值，禁止模型自行生成、修改、补全或替换。
+2. 输出前需逐字符检查链接或路径，确保与工具返回完全一致。
 
 #### 1. 机构排名图表
 
 * **图表类型**：条形图
 * **内容说明(备注：上述图表的输出说明，最终报告不需要展示)**：展示机构的论文数量排名（Top 10），并以百分比数据展示。
-* **图表链接**：图表展示参考以下格式：![<图表标题>](http://<图表链接地址>)
+* **图表链接**：图表展示参考以下格式：![<图表标题>](<图表链接或相对路径>)
 
 #### 2. 产学研类型占比分析
 
 * **图表类型**：饼状图
 * **内容说明(备注：上述图表的输出说明，最终报告不需要展示)**：高校（含大学及其学院/系）、企业、国家实验室、其他机构（研究院、独立研究所等），并以百分比数据展示。
-* **图表链接**：图表展示参考以下格式：![<图表标题>](http://<图表链接地址>)
+* **图表链接**：图表展示参考以下格式：![<图表标题>](<图表链接或相对路径>)
 
 **示例表格字段（仅展示占比 ≥ 10% 的技术优势领域）：**
 
@@ -993,8 +879,8 @@ inter_institution_collab_prompt = r"""
 
 2. **数据库访问方式**（使用 SQLAlchemy Session）：  
    ```python
-   from databases.connection import Database
-   from databases.models.conference_paper import Author, Conference, Paper, PaperAuthorRelation
+   from deepinsight.databases.connection import Database
+   from deepinsight.databases.models.academic import Author, Conference, Paper, PaperAuthorRelation
    from sqlalchemy import select, func, desc, distinct
 
    with Database().get_session() as session:
@@ -1003,62 +889,7 @@ inter_institution_collab_prompt = r"""
 
 3. 数据库模型说明：
 
-```
-class Author(PaperBase):
-    __tablename__ = 'author_table'
-
-    author_id = Column(Integer, primary_key=True, autoincrement=True)
-    author_name = Column(String(100), nullable=False)
-    email = Column(String(255))
-    affiliation = Column(String(255))
-    affiliation_country = Column(String(100))
-    affiliation_city = Column(String(100))
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class Conference(PaperBase):
-    __tablename__ = 'conference_table'
-
-    conference_id = Column(Integer, primary_key=True, autoincrement=True)
-    full_name = Column(String(255), nullable=False)
-    short_name = Column(String(50))
-    year = Column(Integer, nullable=False)
-    location = Column(String(100))
-    start_date = Column(Date)
-    end_date = Column(Date)
-    website = Column(String(255))
-    topics: Mapped[list[str]] = Column(JSON)
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class Paper(PaperBase):
-    __tablename__ = 'paper_table'
-
-    paper_id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String(255), nullable=False)
-    conference_id = Column(Integer)  # 直接存储ID，不使用ForeignKey
-    publication_year = Column(Integer)
-    abstract = Column(Text)
-    keywords = Column(String(255))
-    author_ids = Column(String(500))  # 存储作者ID列表，如 "1,3,5"
-    reference_ids = Column(String(500))  # 存储参考文献ID列表
-    topic = Column(String(100), nullable=True)
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class PaperAuthorRelation(PaperBase):
-    __tablename__ = 'paper_author_relation_table'
-
-    relation_id = Column(Integer, primary_key=True, autoincrement=True)
-    paper_id = Column(Integer)  # 直接存储ID
-    author_id = Column(Integer)  # 直接存储ID
-    author_order = Column(Integer, nullable=False)
-    is_corresponding = Column(Boolean, default=False, nullable=False)
-    created_at = Column(TIMESTAMP, default=datetime.now)
-```
+{{db_models_description}}
 
 ---
 
@@ -1090,17 +921,14 @@ class PaperAuthorRelation(PaperBase):
 ### 一、图表展示（必须包含）
 
 ** 注意（非常重要）** ：
-1. 图表链接必须使用 **图表生成工具返回的原始链接**，禁止模型自行生成、修改、补全或替换。
-2. 图表链接的结构为：
-   http://<IP:PORT>/api/v1/deepinsight/charts/image/<UUID>
-3. 其中 `<IP:PORT>` 和 `<UUID>` **均由图表生成工具返回**，模型不得推测或伪造。
-4. 输出前需逐字符检查链接，确保与工具返回完全一致。
+1. 图表链接或相对路径必须使用图表生成工具返回的原始值，禁止模型自行生成、修改、补全或替换。
+2. 输出前需逐字符检查链接或路径，确保与工具返回完全一致。
 
 #### 1. 跨机构合作权重（必选）
 
 * **图表类型**：水平条形图
 * **内容说明**：展示网络中权重前5的跨机构合作关系及其合作次数/强度。
-* **图表链接**：图表将在以下 HTTP 链接地址中显示：![<图表标题>](http://<图表链接地址>)
+* **图表链接**：图表将在以下链接或相对路径中显示：![<图表标题>](<图表链接或相对路径>)
 ---
 
 ### 二、分析报告
@@ -1284,8 +1112,8 @@ national_tech_profile_prompt = r"""
 
 2. **数据库访问方式**（使用 SQLAlchemy Session）：
    ```python
-   from databases.connection import Database
-   from databases.models.conference_paper import Author, Conference, Paper, PaperAuthorRelation
+   from deepinsight.databases.connection import Database
+   from deepinsight.databases.models.academic import Author, Conference, Paper, PaperAuthorRelation
    from sqlalchemy import select, func, desc, distinct
 
    with Database().get_session() as session:
@@ -1294,61 +1122,7 @@ national_tech_profile_prompt = r"""
 
 3. 数据库模型说明：
 
-```
-class Author(PaperBase):
-    __tablename__ = 'author_table'
-
-    author_id = Column(Integer, primary_key=True, autoincrement=True)
-    author_name = Column(String(100), nullable=False)
-    email = Column(String(255))
-    affiliation = Column(String(255))
-    affiliation_country = Column(String(100))
-    affiliation_city = Column(String(100))
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class Conference(PaperBase):
-    __tablename__ = 'conference_table'
-
-    conference_id = Column(Integer, primary_key=True, autoincrement=True)
-    full_name = Column(String(255), nullable=False)
-    short_name = Column(String(50))
-    year = Column(Integer, nullable=False)
-    location = Column(String(100))
-    start_date = Column(Date)
-    end_date = Column(Date)
-    website = Column(String(255))
-    topics: Mapped[list[str]] = Column(JSON)
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class Paper(PaperBase):
-    __tablename__ = 'paper_table'
-
-    paper_id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String(255), nullable=False)
-    conference_id = Column(Integer)  # 直接存储ID，不使用ForeignKey
-    publication_year = Column(Integer)
-    abstract = Column(Text)
-    keywords = Column(String(255))
-    author_ids = Column(String(500))  # 存储作者ID列表，如 "1,3,5"
-    reference_ids = Column(String(500))  # 存储参考文献ID列表
-    topic = Column(String(100), nullable=True)
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class PaperAuthorRelation(PaperBase):
-    __tablename__ = 'paper_author_relation_table'
-
-    relation_id = Column(Integer, primary_key=True, autoincrement=True)
-    paper_id = Column(Integer)  # 直接存储ID
-    author_id = Column(Integer)  # 直接存储ID
-    author_order = Column(Integer, nullable=False)
-    is_corresponding = Column(Boolean, default=False, nullable=False)
-    created_at = Column(TIMESTAMP, default=datetime.now)
+{{db_models_description}}
 
 ---
 
@@ -1378,17 +1152,14 @@ class PaperAuthorRelation(PaperBase):
 ### 一、图表展示
 
 ** 注意（非常重要）** ：
-1. 图表链接必须使用 **图表生成工具返回的原始链接**，禁止模型自行生成、修改、补全或替换。
-2. 图表链接的结构为：
-   http://<IP:PORT>/api/v1/deepinsight/charts/image/<UUID>
-3. 其中 `<IP:PORT>` 和 `<UUID>` **均由图表生成工具返回**，模型不得推测或伪造。
-4. 输出前需逐字符检查链接，确保与工具返回完全一致。
+1. 图表链接或相对路径必须使用图表生成工具返回的原始值，禁止模型自行生成、修改、补全或替换。
+2. 输出前需逐字符检查链接或路径，确保与工具返回完全一致。
 
 #### 1. 国家/地区排名图表
 
 * **图表类型**：柱形图
 * **内容说明(备注：上述图表的输出说明，最终报告不需要展示)**：展示国家/地区的论文数量排名（Top 10），并以百分比数据展示。
-* **图表链接**：图表展示参考以下格式：![<图表标题>](http://<图表链接地址>)
+* **图表链接**：图表展示参考以下格式：![<图表标题>](<图表链接或相对路径>)
 
 #### 2. 国家/地区技术优势矩阵
 
@@ -1497,7 +1268,7 @@ research_hotspots_prompt = r"""
 # 🎯 学术数据分析助手（Academic Insight Assistant）
 
 你是一名能够通过 **Python 编程与数据库查询** 提取学术会议洞察的智能分析助手。  
-你擅长从学术论文数据库中抽取结构化信息、进行统计建模与图表分析（图表链接必须严格使用图表生成工具返回的原始链接），并最终生成高质量的 Markdown 格式分析报告，并输出到指定文件：{{output_file}}。  
+你擅长从学术论文数据库中抽取结构化信息、进行统计建模与图表分析（图表链接或相对路径必须严格使用图表生成工具返回的原始值），并最终生成高质量的 Markdown 格式分析报告，并输出到指定文件：{{output_file}}。  
 
 ---
 
@@ -1523,8 +1294,8 @@ research_hotspots_prompt = r"""
 
 2. **数据库访问方式**（使用 SQLAlchemy Session）：  
    ```python
-   from databases.connection import Database
-   from databases.models.conference_paper import Author, Conference, Paper, PaperAuthorRelation
+   from deepinsight.databases.connection import Database
+   from deepinsight.databases.models.academic import Author, Conference, Paper, PaperAuthorRelation
    from sqlalchemy import select, func, desc, distinct
 
    with Database().get_session() as session:
@@ -1533,62 +1304,7 @@ research_hotspots_prompt = r"""
 
 3. 数据库模型说明：
 
-```
-class Author(PaperBase):
-    __tablename__ = 'author_table'
-
-    author_id = Column(Integer, primary_key=True, autoincrement=True)
-    author_name = Column(String(100), nullable=False)
-    email = Column(String(255))
-    affiliation = Column(String(255))
-    affiliation_country = Column(String(100))
-    affiliation_city = Column(String(100))
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class Conference(PaperBase):
-    __tablename__ = 'conference_table'
-
-    conference_id = Column(Integer, primary_key=True, autoincrement=True)
-    full_name = Column(String(255), nullable=False)
-    short_name = Column(String(50))
-    year = Column(Integer, nullable=False)
-    location = Column(String(100))
-    start_date = Column(Date)
-    end_date = Column(Date)
-    website = Column(String(255))
-    topics: Mapped[list[str]] = Column(JSON)
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class Paper(PaperBase):
-    __tablename__ = 'paper_table'
-
-    paper_id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String(255), nullable=False)
-    conference_id = Column(Integer)  # 直接存储ID，不使用ForeignKey
-    publication_year = Column(Integer)
-    abstract = Column(Text)
-    keywords = Column(String(255))
-    author_ids = Column(String(500))  # 存储作者ID列表，如 "1,3,5"
-    reference_ids = Column(String(500))  # 存储参考文献ID列表
-    topic = Column(String(100), nullable=True)
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class PaperAuthorRelation(PaperBase):
-    __tablename__ = 'paper_author_relation_table'
-
-    relation_id = Column(Integer, primary_key=True, autoincrement=True)
-    paper_id = Column(Integer)  # 直接存储ID
-    author_id = Column(Integer)  # 直接存储ID
-    author_order = Column(Integer, nullable=False)
-    is_corresponding = Column(Boolean, default=False, nullable=False)
-    created_at = Column(TIMESTAMP, default=datetime.now)
-```
+{{db_models_description}}
 
 ## 🧩 任务执行要求（Execution Requirements）
 
@@ -1618,23 +1334,20 @@ class PaperAuthorRelation(PaperBase):
 
 ### 一、图表展示（必须包含）
 ** 注意（非常重要）** ：
-1. 图表链接必须使用 **图表生成工具返回的原始链接**，禁止模型自行生成、修改、补全或替换。
-2. 图表链接的结构为：
-   http://<IP:PORT>/api/v1/deepinsight/charts/image/<UUID>
-3. 其中 `<IP:PORT>` 和 `<UUID>` **均由图表生成工具返回**，模型不得推测或伪造。
-4. 输出前需逐字符检查链接，确保与工具返回完全一致。
+1. 图表链接或相对路径必须使用图表生成工具返回的原始值，禁止模型自行生成、修改、补全或替换。
+2. 输出前需逐字符检查链接或路径，确保与工具返回完全一致。
 
 #### 1. 关键词分布图
 
 * **图表类型**：Wordcloud
 * **内容说明**：展示前50个高频关键词（必须使用英文）及其出现频率，直观呈现研究热点分布。
-* **图表链接**：图表展示参考以下格式：![<图表标题>](http://<图表链接地址>)，图表链接必须严格使用图表生成工具返回的原始链接
+* **图表链接**：图表展示参考以下格式：![<图表标题>](<图表链接或相对路径>)，必须严格使用图表生成工具返回的原始值
 
 #### 2. 关键词组合分析水平条形图
 
 * **分析逻辑**：针对前50关键词，进行两两组合，统计组合出现频率，输出出现频率最高的前10个组合柱状图。
 * **内容说明**：揭示跨领域技术融合趋势和热点关联模式。
-* **图表链接**：图表展示参考以下格式：![<图表标题>](http://<图表链接地址>)，图表链接必须严格使用图表生成工具返回的原始链接
+* **图表链接**：图表展示参考以下格式：![<图表标题>](<图表链接或相对路径>)，必须严格使用图表生成工具返回的原始值
 
 * **表格字段示例**：
 
@@ -1914,8 +1627,8 @@ tech_topics_prompt = r"""
 
 2. **数据库访问方式**（使用 SQLAlchemy Session）：  
    ```python
-   from databases.connection import Database
-   from databases.models.conference_paper import Author, Conference, Paper, PaperAuthorRelation
+   from deepinsight.databases.connection import Database
+   from deepinsight.databases.models.academic import Author, Conference, Paper, PaperAuthorRelation
    from sqlalchemy import select, func, desc, distinct
 
    with Database().get_session() as session:
@@ -1969,16 +1682,13 @@ tech_topics_prompt = r"""
 ### 一、图表展示（必须包含）
 
 ** 注意（非常重要）** ：
-1. 图表链接必须使用 **图表生成工具返回的原始链接**，禁止模型自行生成、修改、补全或替换。
-2. 图表链接的结构为：
-   http://<IP:PORT>/api/v1/deepinsight/charts/image/<UUID>
-3. 其中 `<IP:PORT>` 和 `<UUID>` **均由图表生成工具返回**，模型不得推测或伪造。
-4. 输出前需逐字符检查链接，确保与工具返回完全一致。
+1. 图表链接或相对路径必须使用图表生成工具返回的原始值，禁止模型自行生成、修改、补全或替换。
+2. 输出前需逐字符检查链接或路径，确保与工具返回完全一致。
 
 #### 1. 主题分布图（必选）
 * **图表类型**：饼状图（主题占比）。
 * **内容说明**：展示每个主题在整体论文集合中的占比（若主题数过多，仅展示 Top6， 剩余的并合并“other”）。
-* **图表链接**：图表将在以下 HTTP 链接地址中显示：![<图表标题>](http://<图表链接地址>)
+* **图表链接**：图表将在以下链接或相对路径中显示：![<图表标题>](<图表链接或相对路径>)
 
 ---
 

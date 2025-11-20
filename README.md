@@ -45,6 +45,11 @@ poetry run alembic upgrade head
   - 启动研究：`deepinsight research start --topic "人工智能发展趋势"`
   - 查看帮助：`deepinsight research --help`
 
+- 后端服务（api）
+  - 启动后端服务：`deepinsight api start --config ./config.yaml`
+  - 指定专家配置（可选）：`deepinsight api start --config ./config.yaml --expert-config ./experts.yaml`
+  - 也可通过环境变量指定：`DEEPINSIGHT_CONFIG=./config.yaml deepinsight api start`
+
 提示：可通过环境变量 `DEEPINSIGHT_CONFIG` 指定配置文件路径（默认 `./config.yaml`）。
 
 ### 方式二：Web方式运行
@@ -53,7 +58,9 @@ poetry run alembic upgrade head
 
 ```
 poetry install
-python deepinsight/app.py
+deepinsight api start --config ./config.yaml
+# 或直接运行脚本：
+python deepinsight/api/app.py --config ./config.yaml
 ```
 
 #### 启动前端服务

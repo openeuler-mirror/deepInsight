@@ -21,6 +21,7 @@ from deepinsight.core.utils.progress_utils import progress_stage
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.core.tools.tavily_search import tavily_search
 from deepinsight.core.utils.context_utils import DefaultSummarizationMiddleware
+from deepinsight.utils.db_schema_utils import get_db_models_source_markdown
 
 from integrations.mcps.generate_chart import generate_column_chart, generate_bar_chart, generate_pie_chart
 
@@ -44,10 +45,12 @@ async def get_deep_agents(config: RunnableConfig, prompt_template_name, extent_t
     llm_model = rc.get_model()
     prompt_manager = rc.prompt_manager
     prompt_group: str = rc.prompt_group
+    vars_to_format = dict(prompt_vars or {})
+    vars_to_format.setdefault("db_models_description", get_db_models_source_markdown())
     system_prompt = prompt_manager.get_prompt(
         name=prompt_template_name,
         group=prompt_group,
-    ).format(**prompt_vars)
+    ).format(**vars_to_format)
     tools = [PythonREPLTool(), tavily_search, generate_wordcloud, generate_column_chart, generate_bar_chart,
              generate_pie_chart]
     if extent_tools:
@@ -132,7 +135,6 @@ async def tech_topics_node(state: ConferenceStaticState, config: RunnableConfig)
     if not mem_file_system_instance.exists(output_file):
         logging.error(f"get tech_topics failed, origin question:{state['origin_question']}")
         return {"tech_topics": ""}
-    mem_file_system_instance.sync_with_real_fs(real_dir="./", import_file=output_file)
     return {"tech_topics": mem_file_system_instance.read(output_file)}
 
 
@@ -159,7 +161,6 @@ async def research_hotspots_node(state: ConferenceStaticState, config: RunnableC
     if not mem_file_system_instance.exists(output_file):
         logging.error(f"get research_hotspots failed, origin question:{state['origin_question']}")
         return {"research_hotspots": ""}
-    mem_file_system_instance.sync_with_real_fs(real_dir="./", import_file=output_file)
     return {
         "research_hotspots": mem_file_system_instance.read(output_file)
     }
@@ -189,7 +190,6 @@ async def national_tech_profile_node(state: ConferenceStaticState, config: Runna
     if not mem_file_system_instance.exists(output_file):
         logging.error(f"get national_tech_profile failed, origin question:{state['origin_question']}")
         return {"national_tech_profile": ""}
-    mem_file_system_instance.sync_with_real_fs(real_dir="./", import_file=output_file)
     return {
         "national_tech_profile": mem_file_system_instance.read(output_file)
     }
@@ -220,7 +220,6 @@ async def institution_overview_node(state: ConferenceStaticState, config: Runnab
     if not mem_file_system_instance.exists(output_file):
         logging.error(f"get institution_overview failed, origin question:{state['origin_question']}")
         return {"institution_overview": ""}
-    mem_file_system_instance.sync_with_real_fs(real_dir="./", import_file=output_file)
     return {
         "institution_overview": mem_file_system_instance.read(output_file)
     }
@@ -249,7 +248,6 @@ async def inter_institution_collab_node(state: ConferenceStaticState, config: Ru
     if not mem_file_system_instance.exists(output_file):
         logging.error(f"get inter_institution_collab failed, origin question:{state['origin_question']}")
         return {"inter_institution_collab": ""}
-    mem_file_system_instance.sync_with_real_fs(real_dir="./", import_file=output_file)
     return {
         "inter_institution_collab": mem_file_system_instance.read(output_file)
     }
@@ -278,7 +276,6 @@ async def high_potential_tech_transfer_node(state: ConferenceStaticState, config
     if not mem_file_system_instance.exists(output_file):
         logging.error(f"get high_potential_tech failed, origin question:{state['origin_question']}")
         return {"high_potential_tech_transfer": ""}
-    mem_file_system_instance.sync_with_real_fs(real_dir="./", import_file=output_file)
     return {
         "high_potential_tech_transfer": mem_file_system_instance.read(output_file)
     }
@@ -306,7 +303,6 @@ async def academic_leaders_node(state: ConferenceStaticState, config: RunnableCo
     if not mem_file_system_instance.exists(output_file):
         logging.error(f"get academic_leaders failed, origin question:{state['origin_question']}")
         return {"high_potential_tech_transfer": ""}
-    mem_file_system_instance.sync_with_real_fs(real_dir="./", import_file=output_file)
     return {
         "high_potential_tech_transfer": mem_file_system_instance.read(output_file)
     }
