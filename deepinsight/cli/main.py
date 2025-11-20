@@ -96,14 +96,15 @@ For more information on a specific command, run:
         # Research assistant command
         research_parser = subparsers.add_parser(
             'research',
-            help='Deep research assistant',
-            description='Interactive deep research assistant'
+            help='Deep research',
+            description='Usage: deepinsight research start --topic "<research topic>"',
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog='Examples:\n  deepinsight research start --topic "ICLR 2025"\n  deepinsight research start --topic "AI trends"'
         )
-        # Allow passing through subcommand arguments to be parsed by ResearchCommand
         research_parser.add_argument(
             'args',
             nargs=argparse.REMAINDER,
-            help='Arguments for research subcommands (parsed by ResearchCommand)'
+            help='Use "deepinsight research start --topic \"...\""'
         )
         
         # Conference management command
@@ -131,6 +132,13 @@ For more information on a specific command, run:
                 self.parser.print_help()
                 return 1
             
+            # Forward research help to subcommand parser for better UX
+            if parsed_args.command == 'research':
+                rest = getattr(parsed_args, 'args', [])
+                if not rest or '--help' in rest or '-h' in rest:
+                    ResearchCommand()._create_parser().print_help()
+                    return 0
+
             # Get the appropriate command handler
             command = self.commands.get(parsed_args.command)
             if not command:

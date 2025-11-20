@@ -40,7 +40,7 @@ prompt_management:
     secret_key: ${LANGFUSE_SECRET_KEY}
     host: ${LANGFUSE_HOST}
   groups:
-    deepresearch:
+    deep_research:
       label: "latest"
     conference_supervisor:
       label: "latest"
@@ -55,6 +55,10 @@ prompt_management:
     conference_best_papers:
       label: "latest"
     conference_ppt_generate:
+      label: "latest"
+    expert_review:
+      label: "latest"
+    summary_experts:
       label: "latest"
       
 # 场景配置

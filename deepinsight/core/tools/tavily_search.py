@@ -61,31 +61,25 @@ async def tavily_search_async(
     tavily_client = AsyncTavilyClient(api_key=get_tavily_api_key(config))
 
     # Create search tasks for parallel execution
-    search_tasks = []
-    for query in search_queries:
-        try:
-            search_tasks.append(
-                tavily_client.search(
-                    query,
-                    max_results=max_results,
-                    include_raw_content=include_raw_content,
-                    topic=topic,
-                    include_favicon=True,
-                    search_depth="advanced",
-                    include_images=True,
-                    include_image_descriptions=True,
-                )
-            )
-        except Exception as e:
-            logging.error(f"Failed to initialize Tavily search task: {type(e).__name__}: {e}")
-
+    search_tasks = [
+        tavily_client.search(
+            query,
+            max_results=max_results,
+            include_raw_content=include_raw_content,
+            topic=topic,
+            include_favicon=True,
+            search_depth="advanced",
+            include_images=True,
+            include_image_descriptions=True,
+        ) for query in search_queries
+    ]
     # Execute all search queries in parallel and return results
     results_or_errors = await asyncio.gather(*search_tasks, return_exceptions=True)
     valid_results = []
     for item in results_or_errors:
-        if isinstance(item, Exception):
+        if isinstance(item, BaseException):
             logging.error(f"Tavily search error: {type(item).__name__}: {item}")
-            continue
+            raise item
         valid_results.append(item)
     return valid_results
 
@@ -155,17 +149,13 @@ async def tavily_search(
         Formatted string containing summarized search results
     """
     # Step 1: Execute search queries asynchronously
-    try:
-        search_results = await tavily_search_async(
-            queries,
-            max_results=1,
-            topic=topic,
-            include_raw_content=True,
-            config=config
-        )
-    except Exception as e:
-        logging.error(f"Tavily search failed: {type(e).__name__}: {e}")
-        search_results = []
+    search_results = await tavily_search_async(
+        queries,
+        max_results=1,
+        topic=topic,
+        include_raw_content=True,
+        config=config
+    )
 
     # Step 2: Deduplicate results by URL to avoid processing the same content multiple times
     unique_results = {}

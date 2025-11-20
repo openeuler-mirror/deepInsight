@@ -49,6 +49,12 @@ class ResearchRequest(BaseModel):
     # Optional args bundle (e.g., LLM options)
     args: Optional[ResearchArgs] = Field(None, description="Additional options for execution")
 
+    review_experts: Optional[List[str]] = Field(None)
+    expert_review_enable: Optional[bool] = Field(False)
+    parallel_expert_review_enable: Optional[bool] = Field(False)
+    expert_name: Optional[str] = Field(None)
+    write_experts: Optional[List[str]] = Field(None)
+
 
 class PPTGenerateRequest(BaseModel):
     conversation_id: str = Field(...,

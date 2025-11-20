@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from deepinsight.core.types.graph_nodes import DeepResearchNodeName
 from deepinsight.core.agent.deep_research.researcher import graph as topic_research_subgraph
+from deepinsight.core.agent.expert_review.expert_review import build_expert_review_graph
 from deepinsight.core.types.research import (
     ResearchComplete, 
     ClarifyNeedUser, 
@@ -117,18 +118,16 @@ async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Comman
     llm = rc.get_model()
 
     # Step 3: Analyze whether clarification is needed
-    prompt = rc.prompt_manager.get_prompt(
+    prompt_tpl = rc.prompt_manager.get_prompt(
             name="clarify_with_user_instructions",
             group=rc.prompt_group,
     )
-
     parser = PydanticOutputParser(pydantic_object=ClarifyWithUser)
-    prompt = prompt + "\n\n---\n" + parser.get_format_instructions()
-    chain = prompt | llm | parser
-    result = await chain.with_retry().ainvoke(dict(
-        messages=get_buffer_string(messages),
-        date=get_today_str()
-    ))
+    sys_msgs = prompt_tpl.format_messages(messages=get_buffer_string(messages), date=get_today_str())
+    sys_content = sys_msgs[0].content if sys_msgs else ""
+    system_message = SystemMessage(content=sys_content + "\n\n---\n" + parser.get_format_instructions())
+    chain = llm | parser
+    result = await chain.with_retry().ainvoke(input=[system_message] + messages)
 
     # Step 4: Route based on clarification analysis
     if result.need_clarification:
@@ -160,10 +159,20 @@ async def write_research_brief(state: AgentState, config: RunnableConfig):
     llm = rc.get_model()
 
     # Step 2: Generate structured research brief from user messages
-    prompt_content = rc.prompt_manager.get_prompt(
+    prompt_name = "transform_messages_into_research_topic_prompt"
+    if rc.expert_name:
+        prompt_name = f"{prompt_name}_{rc.expert_name}"
+    try:
+        prompt_content = rc.prompt_manager.get_prompt(
+            name=prompt_name,
+            group=rc.prompt_group,
+        )
+    except Exception as e:
+        logging.error(f"Write research brief can't load expert {rc.expert_name} prompt, {e}")
+        prompt_content = rc.prompt_manager.get_prompt(
             name="transform_messages_into_research_topic_prompt",
             group=rc.prompt_group,
-    )
+        )
     # 获取原始文本响应
     chain = prompt_content | llm
     response_msg = await chain.ainvoke(
@@ -477,15 +486,31 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     }
 
 
+async def review_by_expert(state: AgentState, config: RunnableConfig):
+    rc = parse_research_config(config)
+    if not rc.expert_defs:
+        logging.error("Enable expert review, but not config expert defs")
+        return {}
+    export_review_subgraph = build_expert_review_graph(rc.expert_defs)
+    result = await export_review_subgraph.ainvoke(dict(
+        final_report=state["final_report"]
+    ))
+    return {
+        "expert_comments": result["expert_comments"]
+    }
+
+
 async def publish_result(state: AgentState, config: RunnableConfig):
     rc = parse_research_config(config)
-    if rc.prompt_group.startswith("conference_"):
-        return
+    allow_publish_result = rc.allow_publish_result
+    if not allow_publish_result:
+        return state
     writer = get_stream_writer()
     writer(FinalResult(
         final_report=state["final_report"],
         expert_review_comments=state["expert_comments"]
     ))
+    return state
 
 
 async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[Literal["supervisor_tools"]]:
@@ -718,6 +743,7 @@ graph_builder.add_node(DeepResearchNodeName.GENERATE_REPORT_OUTLINE,
 graph_builder.add_node("wait_user_confirm_report_outline",
                                  wait_user_confirm_report_outline)  # Report outline generation phase
 graph_builder.add_node(DeepResearchNodeName.GENERATE_REPORT, final_report_generation)  # Report generation phase
+graph_builder.add_node("review_by_expert", review_by_expert)  # Expert review phase
 graph_builder.add_node("publish_result", publish_result)
 
 # Define main workflow edges for sequential execution
@@ -728,7 +754,18 @@ graph_builder.add_edge("wait_user_confirm_research_brief", DeepResearchNodeName.
 graph_builder.add_edge(DeepResearchNodeName.GENERATE_REPORT_OUTLINE, "wait_user_confirm_report_outline")
 graph_builder.add_edge("wait_user_confirm_report_outline", "research_supervisor")
 graph_builder.add_edge("research_supervisor", DeepResearchNodeName.GENERATE_REPORT)
-graph_builder.add_edge(DeepResearchNodeName.GENERATE_REPORT, "publish_result")  # Final exit point
+
+
+def after_report_generation_to(state: AgentState, config: RunnableConfig):
+    rc = parse_research_config(config)
+    if rc.enable_expert_review:
+        return "review_by_expert"
+    else:
+        return "publish_result"
+
+
+graph_builder.add_conditional_edges(DeepResearchNodeName.GENERATE_REPORT, after_report_generation_to)
+graph_builder.add_edge("review_by_expert", "publish_result")
 graph_builder.add_edge("publish_result", END)
 
 # Compile the complete deep researcher workflow

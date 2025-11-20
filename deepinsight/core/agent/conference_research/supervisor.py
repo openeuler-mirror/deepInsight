@@ -174,6 +174,7 @@ async def construct_sub_config(config, prompt_group: ConferenceGraphNodeType):
         "allow_user_clarification": False,
         "allow_edit_research_brief": False,
         "allow_edit_report_outline": False,
+        "allow_publish_result": False,
         "tools": tools,
     }
 

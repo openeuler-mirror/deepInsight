@@ -27,6 +27,8 @@ from deepinsight.service.ppt.template_service import PPTTemplateService
 from deepinsight.utils.llm_utils import init_langchain_models_from_llm_config
 from deepinsight.utils.common import safe_get
 from deepinsight.core.agent.conference_research.supervisor import graph as conference_graph
+from deepinsight.core.agent.deep_research.supervisor import graph as deep_research_graph
+from deepinsight.core.agent.deep_research.parallel_supervisor import graph as parallel_deep_research_graph
 from deepinsight.core.agent.conference_research.ppt_generate import graph as ppt_generate_graph
 from deepinsight.service.schemas.research import ResearchRequest, SceneType, PPTGenerateRequest
 
@@ -76,7 +78,7 @@ class ResearchService:
             prompt_group = "conference_supervisor"
         else:
             # Fallback group name; supervisor graph is only used for conference
-            prompt_group = "deepresearch"
+            prompt_group = req.scene_type
 
         stream_filter_text: Dict[str, bool] = safe_get(
             deep_cfg, lambda o: safe_get(o.stream_blocklist, lambda s: s.text, None), None
@@ -117,20 +119,33 @@ class ResearchService:
                 "work_root": os.path.abspath(self.config.workspace.work_root) if getattr(self.config, "workspace", None) else None,
                 # Relative image folder under work_root for chart outputs
                 "chart_image_dir": getattr(self.config.workspace, "chart_image_dir", None),
+                "enable_expert_review": req.expert_review_enable,
+                "write_experts": req.write_experts,
             },
             # Keep recursion_limit aligned with typical graph defaults
             "recursion_limit": 1000,
             "callbacks": [CallbackHandler()],
         }
+
+        if (req.expert_review_enable or req.parallel_expert_review_enable) and req.review_experts:
+            graph_config["configurable"]["expert_defs"] = [
+                dict(
+                    name=name,
+                    prompt_key=name,
+                ) for name in req.review_experts
+            ]
+
         return graph_config
 
-    def _select_scene_graph(self, scene_type: SceneType | str) -> CompiledStateGraph:
+    def _select_scene_graph(self, request: ResearchRequest) -> CompiledStateGraph:
         """根据场景类型选择对应的 LangGraph。"""
+        scene_type = request.scene_type or SceneType.DEEP_RESEARCH
         if scene_type == SceneType.CONFERENCE:
             return conference_graph
         elif scene_type == SceneType.DEEP_RESEARCH:
-            # 目前暂无通用 research 图实现
-            raise NotImplementedError("暂未支持 research 场景的 LangGraph；请使用 scene_type=conference")
+            if request.parallel_expert_review_enable and request.review_experts:
+                return parallel_deep_research_graph
+            return deep_research_graph
         raise ValueError(f"未知场景类型: {scene_type}")
 
     async def chat(
@@ -152,8 +167,7 @@ class ResearchService:
             blocked_tool_names=self._blocked_tool_names,
         )
         # 根据场景选择 graph
-        scene = request.scene_type or SceneType.DEEP_RESEARCH
-        scene_graph = self._select_scene_graph(scene)
+        scene_graph = self._select_scene_graph(request)
         async for event in adapter.run_graph(
             graph=scene_graph,
             query=request.query,

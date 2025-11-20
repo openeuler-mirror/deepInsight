@@ -30,7 +30,7 @@ from prompt_toolkit.validation import Validator
 
 from deepinsight.service.research.research import ResearchService
 from deepinsight.config.config import CONFIG, load_config
-from deepinsight.service.schemas.research import ResearchRequest
+from deepinsight.service.schemas.research import ResearchRequest, SceneType
 from deepinsight.utils.trans_md_to_pdf import save_markdown_as_pdf
 from deepinsight.service.schemas.streaming import (
     EventType,
@@ -147,12 +147,11 @@ def sanitize_filename(s: str) -> str:
 
 
 def make_report_filename(question: str, expert: str, output_dir: str = DEFAULT_OUTPUT_DIR) -> str:
-    os.makedirs(output_dir, exist_ok=True)
     prefix = sanitize_filename(question[:10])
     expert_clean = sanitize_filename(expert)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = "_".join([prefix, expert_clean, timestamp])
-    return os.path.join(output_dir, filename)
+    return filename
 
 
 def _get_workspace_root() -> str:
@@ -168,20 +167,20 @@ def _get_workspace_root() -> str:
     return os.getcwd()
 
 
-def get_with_md_file_name(origin_name: str, conversation_id: str):
+def get_with_md_file_name(origin_name: str, conversation_id: str, output_folder_name: str = "conference_report_result"):
     """Return Markdown path directly under the conversation root directory."""
     base_name = os.path.basename(origin_name)
     work_root = _get_workspace_root()
-    convo_dir = os.path.join(work_root, "conference_report_result", conversation_id)
+    convo_dir = os.path.join(work_root, output_folder_name, conversation_id)
     os.makedirs(convo_dir, exist_ok=True)
     return os.path.join(convo_dir, base_name + ".md")
 
 
-def get_with_pdf_file_name(origin_name: str, conversation_id: str):
+def get_with_pdf_file_name(origin_name: str, conversation_id: str, output_folder_name: str = "conference_report_result"):
     """Return PDF path directly under the conversation root directory."""
     base_name = os.path.basename(origin_name)
     work_root = _get_workspace_root()
-    convo_dir = os.path.join(work_root, "conference_report_result", conversation_id)
+    convo_dir = os.path.join(work_root, output_folder_name, conversation_id)
     os.makedirs(convo_dir, exist_ok=True)
     return os.path.join(convo_dir, base_name + ".pdf")
 
@@ -192,10 +191,11 @@ def write_result(
     conversation_id: str,
     gen_pdf: bool = True,
     console: Optional[Console] = None,
-    success_message: str = "✅ 报告已成功保存至：{result_file}"
+    success_message: str = "✅ 报告已成功保存至：{result_file}",
+    output_folder_name: str = "conference_report_result",
 ) -> None:
     """将 Markdown 写入到固定目录，并可选生成 PDF。"""
-    md_file_name = get_with_md_file_name(result_file_stem, conversation_id)
+    md_file_name = get_with_md_file_name(result_file_stem, conversation_id, output_folder_name)
     with open(md_file_name, "w", encoding="utf-8") as f:
         f.write(final_text)
 
@@ -205,7 +205,7 @@ def write_result(
         )
 
     if gen_pdf:
-        pdf_file_name = get_with_pdf_file_name(result_file_stem, conversation_id)
+        pdf_file_name = get_with_pdf_file_name(result_file_stem, conversation_id, output_folder_name)
         try:
             # 为相对路径图片（如 charts/xxx.png）提供解析根目录
             from os.path import dirname
@@ -342,8 +342,9 @@ async def _process_request(service: ResearchService, request: ResearchRequest, l
     accumulated_texts = {}
     accumulated_tool_calls: Dict[str, List[MessageToolCallContent]] = {}  # Message id -> tool call list
     is_gen_report = False
+    agen = service.chat(request=request)
     try:
-        async for stream_event in service.chat(request=request):
+        async for stream_event in agen:
             if stream_event.event == EventType.thinking_message_chunk:
                 for msg in stream_event.messages:
                     # if msg.content_type == ResponseMessageContentType.plain_text and msg.content.text:
@@ -498,13 +499,15 @@ async def _process_request(service: ResearchService, request: ResearchRequest, l
                 live.console.print(
                     Panel(final_text, title="Final Report", border_style="green", expand=True)
                 )
+                folder_name = "research_result" if request.scene_type == SceneType.DEEP_RESEARCH else "conference_report_result"
                 write_result(
                     final_text=final_text,
                     result_file_stem=result_file_stem,
                     conversation_id=request.conversation_id,
                     gen_pdf=gen_pdf,
                     console=live.console,
-                    success_message="[bold green]✅ 报告已成功保存至：[/bold green][yellow]{result_file}[/yellow]"
+                    success_message="[bold green]✅ 报告已成功保存至：[/bold green][yellow]{result_file}[/yellow]",
+                    output_folder_name=folder_name,
                 )
 
             elif stream_event.event.startswith(EventType.interrupt):
@@ -513,21 +516,28 @@ async def _process_request(service: ResearchService, request: ResearchRequest, l
                 )
                 live.update("")
                 live.stop()
-
                 user_input = await ask_user(prompt_text=prompt_text, mode=stream_event.event, live=live)
-
                 new_request = deepcopy(request)
                 new_request.query = user_input
+                try:
+                    await agen.aclose()
+                except Exception:
+                    pass
                 return await run_research_and_save_report(
                     service=service,
                     request=new_request,
                     result_file_stem=result_file_stem,
                     gen_pdf=gen_pdf,
-                    live=live,
+                    live=None,
                 )
     except Exception as e:
         live.console.print(f"[red]Error during chat: {e}[/red]")
         raise e
+    finally:
+        try:
+            await agen.aclose()
+        except Exception:
+            pass
 
     live.console.print()  # newline after each request
     return None
@@ -550,4 +560,11 @@ def run_research_and_save_report_sync(
             gen_pdf=gen_pdf,
             live=live,
         )
+    )
+    
+def non_empty_validator():
+    return Validator.from_callable(
+        lambda text: bool(text.strip()),
+        error_message="Input cannot be empty",
+        move_cursor_to_end=True,
     )

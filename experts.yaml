@@ -1,0 +1,27 @@
+- prompt_key: "andrew_ng"
+  name: "吴恩达"
+  type: "reviewer"
+
+
+- prompt_key: "geoffrey_hinton"
+  name: "Geoffrey Hinton"
+  type: "reviewer"
+
+- prompt_key: "andrej_karpathy"
+  name: "Andrej Karpathy"
+  type: "reviewer"
+
+
+
+- prompt_key: "andrew_ng"
+  name: "吴恩达"
+  type: "writer"
+
+
+- prompt_key: "geoffrey_hinton"
+  name: "Geoffrey Hinton"
+  type: "writer"
+
+- prompt_key: "andrej_karpathy"
+  name: "Andrej Karpathy"
+  type: "writer"

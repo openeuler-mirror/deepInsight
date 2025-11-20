@@ -31,6 +31,11 @@ class SearchAPI(str, Enum):
     PAPER_STATIC_DATA = "paper_static_data"
     NONE = "none"
 
+class ExpertDef(BaseModel):
+    name: str
+    prompt_key: str
+    type: str  # 'reviewer' 或 'writer'
+
 class ResearchConfig(BaseModel):
     """Typed structure for LangGraph configurable options.
 
@@ -67,6 +72,7 @@ class ResearchConfig(BaseModel):
     allow_user_clarification: bool = Field(default=False)
     allow_edit_research_brief: bool = Field(default=False)
     allow_edit_report_outline: bool = Field(default=False)
+    allow_publish_result: bool = Field(default=True)
 
     # Optional hints
     final_report_model: Optional[str] = Field(default=None, description="Preferred model name for final report generation")
@@ -111,6 +117,12 @@ class ResearchConfig(BaseModel):
         default=None,
         description="Relative image folder under work_root for chart PNG/HTML outputs",
     )
+
+    expert_name: Optional[str] = Field(None)
+    
+    enable_expert_review: bool = Field(True, description="Expert review switch")
+    expert_defs: Optional[List[ExpertDef]] = Field(None, description="Expert review config")
+    write_experts: Optional[List[str]] = Field([])
 
     def get_model(self, provider_and_name: Optional[str] = None) -> Optional[BaseChatModel]:
         """Return a model backend instance.
