@@ -75,6 +75,17 @@ npm run dev
 
 具体使用指导见[用户指南](./docs/user_guide.md)
 
+### macOS PDF 生成提示（WeasyPrint 依赖）
+- 在 macOS 上通过命令行将 Markdown 导出为 PDF 时，WeasyPrint 需要系统动态库支持。
+- 请设置如下环境变量（建议写入 `~/.zshrc` 或 `~/.bashrc`）：
+
+```bash
+export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib:$DYLD_FALLBACK_LIBRARY_PATH
+```
+
+- 设定后重新打开终端或执行 `source ~/.zshrc` 使配置生效。
+- 如仍有问题，请安装 WeasyPrint 所需库（示例：`brew install cairo pango gdk-pixbuf libffi`）以及中文字体（示例：`brew tap homebrew/cask-fonts && brew install --cask font-noto-sans-cjk`）。
+
 ## 4. 概念介绍与FAQ
 
 关于本项目的更多设计理念、领域概念与常见问题，详见[概念介绍](./docs/conceptual_guide.md)与[FAQ](./docs/FAQ.md)

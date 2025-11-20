@@ -7,19 +7,14 @@
 # EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
 # MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
 # See the Mulan PSL v2 for more details.
-from .research import (
-    WebSearchResult,
-    ErrorResult,
-    ToolType,
-    ToolUnifiedResponse,
-    FinalResult,
-    ClarifyNeedUser,
-    WaitResearchBriefEdit,
-    WaitReportOutlineEdit,
-)
-from .graph_nodes import (
-    DeepResearchNodeName,
-)
-from .graph_config import (
-    ResearchConfig,
-)
+
+from enum import Enum
+
+
+class DeepResearchNodeName(str, Enum):
+    """LangGraph 节点名称（深度研究场景）。"""
+    GENERATE_REPORT = "generate_report"
+    GENERATE_REPORT_OUTLINE = "generate_report_outline"
+
+    def __str__(self):
+        return self.value

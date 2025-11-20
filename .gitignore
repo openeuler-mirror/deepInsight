@@ -6,4 +6,4 @@ mcp_client_config.json
 deepinsight.db
 deepinsight.db-journal
 data/
-chart/
+charts/
