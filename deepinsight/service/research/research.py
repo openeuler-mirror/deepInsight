@@ -32,7 +32,8 @@ from deepinsight.service.streaming.stream_adapter import StreamEventAdapter
 from deepinsight.service.ppt.template_service import PPTTemplateService
 from deepinsight.utils.llm_utils import init_langchain_models_from_llm_config
 from deepinsight.utils.common import safe_get
-from deepinsight.core.agent.conference_research.supervisor import graph as conference_graph
+from deepinsight.core.agent.conference_qa.supervisor import graph as conference_qa_graph
+from deepinsight.core.agent.conference_research.supervisor import graph as conference_research_graph
 from deepinsight.core.agent.deep_research.supervisor import graph as deep_research_graph
 from deepinsight.core.agent.deep_research.parallel_supervisor import graph as parallel_deep_research_graph
 from deepinsight.core.agent.conference_research.ppt_generate import graph as ppt_generate_graph
@@ -81,7 +82,7 @@ class ResearchService:
  
         # Determine prompt group for this scene
         # Conference graph expects prompts under the 'conference_supervisor' group module
-        if (req.scene_type or SceneType.DEEP_RESEARCH) == SceneType.CONFERENCE:
+        if req.scene_type == SceneType.CONFERENCE_RESEARCH:
             prompt_group = "conference_supervisor"
         else:
             # Fallback group name; supervisor graph is only used for conference
@@ -147,8 +148,10 @@ class ResearchService:
     def _select_scene_graph(self, request: ResearchRequest) -> CompiledStateGraph:
         """根据场景类型选择对应的 LangGraph。"""
         scene_type = request.scene_type or SceneType.DEEP_RESEARCH
-        if scene_type == SceneType.CONFERENCE:
-            return conference_graph
+        if scene_type == SceneType.CONFERENCE_QA:
+            return conference_qa_graph
+        elif scene_type == SceneType.CONFERENCE_RESEARCH:
+            return conference_research_graph
         elif scene_type == SceneType.DEEP_RESEARCH:
             if request.parallel_expert_review_enable and request.review_experts:
                 return parallel_deep_research_graph

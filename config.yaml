@@ -42,6 +42,8 @@ prompt_management:
   groups:
     deep_research:
       label: "latest"
+    conference_qa:
+      label: "latest"
     conference_supervisor:
       label: "latest"
     conference_overview:

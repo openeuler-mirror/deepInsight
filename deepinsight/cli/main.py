@@ -66,6 +66,7 @@ class DeepInsightCLI:
 Examples:
   deepinsight conference list
   deepinsight conference generate --name "ICLR 2025" --files-src ./docs
+  deepinsight conference qa --name "ICLR 2025" --files-src ./docs --question "今年最佳论文有哪些创新点？"
   deepinsight research start
   deepinsight --version
 

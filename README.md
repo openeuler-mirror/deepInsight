@@ -39,7 +39,8 @@ poetry run alembic upgrade head
 - 会议管理（conference）
   - 列表：`deepinsight conference list`
   - 删除：`deepinsight conference remove --id 12`
-  - 生成知识库：`deepinsight conference generate --name "ICLR 2025" --files-src ./path/to/files`
+  - 顶会洞察：`deepinsight conference generate --name "ICLR 2025" --files-src ./path/to/files`
+  - 会议问答：`deepinsight conference qa --name "ICLR 2025" --files-src ./path/to/files --question "今年最佳论文有哪些创新点？"`
   
 - 深度研究助手（research）
   - 启动研究：`deepinsight research start --topic "人工智能发展趋势"`

@@ -12,7 +12,8 @@ from deepinsight.config.llm_config import LLMConfig
 class SceneType(str, Enum):
     """场景类型枚举，用于选择具体的图实现。"""
     DEEP_RESEARCH = "deep_research"
-    CONFERENCE = "conference"
+    CONFERENCE_RESEARCH = "conference_research"
+    CONFERENCE_QA = "conference_qa"
 
 
 class ResearchArgs(BaseModel):
