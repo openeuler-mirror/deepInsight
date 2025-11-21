@@ -134,7 +134,13 @@ async def question_clarify_node(state: ConferenceState, config: RunnableConfig):
         )
     else:
         return Command(
-            goto=result.particapant_members,
+            goto=[
+                ConferenceGraphNodeType.CONFERENCE_OVERVIEW,
+                ConferenceGraphNodeType.CONFERENCE_SUBMISSION,
+                ConferenceGraphNodeType.CONFERENCE_KEYNOTE,
+                ConferenceGraphNodeType.CONFERENCE_TOPIC,
+                ConferenceGraphNodeType.CONFERENCE_BEST_PAPER,
+            ],
         )
 
 
@@ -248,8 +254,8 @@ async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
     ).format()
     output_file = f"/{str(rc.run_id)}/conference_summary.md"
     logging.debug(
-        f"conference_best_papers_summary:{state['conference_best_papers_summary']}, conference_topic:{state.get('conference_topic', '')}")
-    user_prompt = f"学术会议价值论文列表：{state['conference_best_papers_summary']},会议主题相关信息：{state.get('conference_topic', '')},保存到路径：{output_file} "
+        f"conference_best_papers_summary:{state.get('conference_best_papers_summary', '')}, conference_topic:{state.get('conference_topic', '')}")
+    user_prompt = f"学术会议价值论文列表：{state.get('conference_best_papers_summary', '')},会议主题相关信息：{state.get('conference_topic', '')},保存到路径：{output_file} "
     tools = register_fs_tools(fs_instance)
     tool_instance = TavilySearch(
         max_results=2,
@@ -295,12 +301,12 @@ async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
     state['conference_summary'] = fs_instance.read_file(f"{output_dir}/conference_summary.md")
 
     full_text = (
-            state['conference_overview'] + '\n\n\n' +
-            state['conference_submission'] + '\n\n\n' +
-            state['conference_keynotes'] + '\n\n\n' +
-            state['conference_topic'] + '\n\n\n' +
-            state['conference_best_papers'] + '\n\n\n' +
-            state['conference_summary']
+            state.get('conference_overview', '') + '\n\n\n' +
+            state.get('conference_submission', '') + '\n\n\n' +
+            state.get('conference_keynotes', '') + '\n\n\n' +
+            state.get('conference_topic', '') + '\n\n\n' +
+            state.get('conference_best_papers', '') + '\n\n\n' +
+            state.get('conference_summary', '')
     )
     # 3. 把输出吐到前端；
     writer = get_stream_writer()

@@ -148,7 +148,7 @@ class StreamEventAdapter:
                     try:
                         parsed = json.loads(message_chunk.content)
                     except Exception as e:
-                        logging.error(f"Failed to parse ToolMessage: {e}, raw={message_chunk.content}")
+                        # logging.error(f"Failed to parse ToolMessage: {e}, raw={message_chunk.content}")
                         parsed = {"raw": message_chunk.content}
 
                     yield StreamEvent(

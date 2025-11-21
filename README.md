@@ -53,6 +53,26 @@ poetry run alembic upgrade head
 
 提示：可通过环境变量 `DEEPINSIGHT_CONFIG` 指定配置文件路径（默认 `./config.yaml`）。
 
+### 图表图片路径配置（image_path_mode & image_base_url）
+- 在 `config.yaml` 的 `workspace` 段控制图表图片 URL 的返回策略：
+  - `image_path_mode`: `relative` 或 `base_url`
+  - `image_base_url`: 当使用 `base_url` 模式时用于拼接的基础 URL（例如 `http://127.0.0.1:8888/api/v1/deepinsight/charts/image`）。
+- 推荐设置：
+  - 命令行/离线生成 PDF 与 Markdown：`image_path_mode: relative`
+  - API/Web 预览：`image_path_mode: base_url` 并设置 `image_base_url` 指向你的服务地址。
+- 返回示例：
+  - `relative` → `../../charts/<uuid>.png`
+  - `base_url` → `http://<ip>:<port>/api/v1/deepinsight/charts/image/<uuid>`
+- 配置示例：
+  ```yaml
+  workspace:
+    work_root: ./data
+    chart_image_dir: charts
+    image_path_mode: base_url
+    image_base_url: http://127.0.0.1:8888/api/v1/deepinsight/charts/image
+  ```
+  若在命令行模式，请将 `image_path_mode` 设为 `relative`，其余保持默认即可。
+
 ### 方式二：Web方式运行
 
 #### 启动后端服务

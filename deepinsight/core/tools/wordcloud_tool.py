@@ -11,30 +11,50 @@ from deepinsight.config.config import load_config, Config
 WORK_ROOT: str | None = None
 CHART_IMAGE_DIR_REL: str | None = None
 CHART_IMAGE_DIR_ABS: str | None = None
+IMAGE_BASE_URL: str | None = None
+IMAGE_PATH_MODE: str | None = None
 
 
 def _init_paths_from_config(config_path: str | None):
-    global WORK_ROOT, CHART_IMAGE_DIR_REL, CHART_IMAGE_DIR_ABS
+    global WORK_ROOT, CHART_IMAGE_DIR_REL, CHART_IMAGE_DIR_ABS, IMAGE_BASE_URL, IMAGE_PATH_MODE
     config: Config | None = None
-    if config_path:
+    resolved_path = config_path
+    if resolved_path and os.path.exists(resolved_path):
         try:
-            config = load_config(config_path)
+            config = load_config(resolved_path)
         except Exception:
             config = None
+    else:
+        fallback = os.path.join(os.getcwd(), "config.yaml")
+        if os.path.exists(fallback):
+            try:
+                config = load_config(fallback)
+            except Exception:
+                config = None
     if config and getattr(config, "workspace", None):
         WORK_ROOT = config.workspace.work_root or "./data"
         CHART_IMAGE_DIR_REL = config.workspace.chart_image_dir or "charts"
+        IMAGE_BASE_URL = (
+            config.workspace.image_base_url
+            or f"http://127.0.0.1:{getattr(config.app, 'port', 8888)}{getattr(config.app, 'api_prefix', '/api/v1')}/deepinsight/charts/image"
+        )
+        IMAGE_PATH_MODE = config.workspace.image_path_mode or "relative"
     else:
         WORK_ROOT = "./data"
         CHART_IMAGE_DIR_REL = "charts"
+        IMAGE_BASE_URL = None
+        IMAGE_PATH_MODE = "relative"
     CHART_IMAGE_DIR_ABS = os.path.abspath(os.path.join(WORK_ROOT, CHART_IMAGE_DIR_REL))
     os.makedirs(CHART_IMAGE_DIR_ABS, exist_ok=True)
 
 
 def _rel_tool_path(filename: str) -> str:
     if WORK_ROOT is None or CHART_IMAGE_DIR_REL is None:
-        _init_paths_from_config(os.environ.get("DEEPINSIGHT_CONFIG_PATH"))
+        _init_paths_from_config(None)
     image_dir_name = CHART_IMAGE_DIR_REL.lstrip("./") if CHART_IMAGE_DIR_REL else "charts"
+    if (IMAGE_PATH_MODE or "relative").lower() == "base_url" and (IMAGE_BASE_URL or ""):
+        file_id = os.path.splitext(filename)[0]
+        return f"{IMAGE_BASE_URL}/{file_id}"
     return f"../../{image_dir_name}/{filename}"
 
 

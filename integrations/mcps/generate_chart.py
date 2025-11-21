@@ -15,16 +15,14 @@ from mcp.server.fastmcp import FastMCP
 WORK_ROOT: str | None = None
 CHART_IMAGE_DIR_REL: str | None = None
 CHART_IMAGE_DIR_ABS: str | None = None
+IMAGE_BASE_URL: str | None = None
+IMAGE_PATH_MODE: str | None = None
 
 
-def _resolve_config_path_from_args_env() -> str | None:
-    """优先使用命令行指定的 config.yaml；否则读取环境变量 DEEPINSIGHT_CONFIG；再回退到当前工作目录下的 config.yaml。"""
+def _resolve_config_path() -> str | None:
+    """优先使用命令行指定的 config.yaml；否则回退到当前工作目录下的 config.yaml。"""
     if len(sys.argv) == 2:
         return sys.argv[1]
-    env_path = os.environ.get("DEEPINSIGHT_CONFIG")
-    if env_path:
-        return env_path
-    # fallback to ./config.yaml
     fallback = os.path.join(os.getcwd(), "config.yaml")
     return fallback if os.path.exists(fallback) else None
 
@@ -34,20 +32,35 @@ def _init_paths_from_config(config_path: str | None):
     - workspace.work_root: 基础工作目录（相对工程根，默认 ./data）
     - workspace.chart_image_dir: 图片保存目录（相对 work_root，默认 charts）
     """
-    global WORK_ROOT, CHART_IMAGE_DIR_REL, CHART_IMAGE_DIR_ABS
+    global WORK_ROOT, CHART_IMAGE_DIR_REL, CHART_IMAGE_DIR_ABS, IMAGE_BASE_URL, IMAGE_PATH_MODE
     config: Config | None = None
-    if config_path:
+    resolved_path = config_path
+    if resolved_path and os.path.exists(resolved_path):
         try:
-            config = load_config(config_path)
+            config = load_config(resolved_path)
         except Exception as e:
-            logging.warning(f"Failed to load config via deepinsight loader at {config_path}: {e}. Using defaults.")
+            logging.warning(f"Failed to load config via deepinsight loader at {resolved_path}: {e}. Using defaults.")
+    else:
+        fallback = os.path.join(os.getcwd(), "config.yaml")
+        if os.path.exists(fallback):
+            try:
+                config = load_config(fallback)
+            except Exception as e:
+                logging.warning(f"Failed to load default config at {fallback}: {e}. Using defaults.")
 
     if config and getattr(config, "workspace", None):
         WORK_ROOT = config.workspace.work_root or "./data"
         CHART_IMAGE_DIR_REL = config.workspace.chart_image_dir or "charts"
+        IMAGE_BASE_URL = (
+            config.workspace.image_base_url
+            or f"http://127.0.0.1:{getattr(config.app, 'port', 8888)}{getattr(config.app, 'api_prefix', '/api/v1')}/deepinsight/charts/image"
+        )
+        IMAGE_PATH_MODE = config.workspace.image_path_mode or "relative"
     else:
         WORK_ROOT = "./data"
         CHART_IMAGE_DIR_REL = "charts"
+        IMAGE_BASE_URL = None
+        IMAGE_PATH_MODE = "relative"
     CHART_IMAGE_DIR_ABS = os.path.abspath(os.path.join(WORK_ROOT, CHART_IMAGE_DIR_REL))
     os.makedirs(CHART_IMAGE_DIR_ABS, exist_ok=True)
 
@@ -56,14 +69,13 @@ mcp = FastMCP(name="mcp-chart")
 
 
 def _rel_tool_path(filename: str) -> str:
-    """将文件名转换为工具返回的相对路径格式 '../../<image_folders>/<filename>'"""
     if WORK_ROOT is None or CHART_IMAGE_DIR_REL is None:
-        # 若未初始化，按默认进行一次初始化
-        _init_paths_from_config(os.environ.get("DEEPINSIGHT_CONFIG_PATH"))
-    # 规范化 work_root 与相对图片目录，去掉开头的 './'
+        _init_paths_from_config(None)
     image_dir_name = CHART_IMAGE_DIR_REL.lstrip("./") if CHART_IMAGE_DIR_REL else "charts"
-    rel = f"{image_dir_name}/{filename}"
-    return f"../../{rel}"
+    if (IMAGE_PATH_MODE or "relative").lower() == "base_url" and (IMAGE_BASE_URL or ""): 
+        file_id = os.path.splitext(filename)[0]
+        return f"{IMAGE_BASE_URL}/{file_id}"
+    return f"../../{image_dir_name}/{filename}"
 
 
 def save_chart(fig, width=1000, height=600) -> str:
@@ -442,10 +454,9 @@ def generate_radar_chart(
 
 # 强制以stdio模式启动，无网络通信
 if __name__ == "__main__":
-    # 支持通过命令行参数或环境变量传入 config.yaml 路径
+    # 支持通过命令行参数传入 config.yaml 路径；否则默认当前目录 config.yaml
     # 命令行：python generate_chart.py /path/to/config.yaml
-    # 环境变量：export DEEPINSIGHT_CONFIG_PATH=/path/to/config.yaml
-    cfg_path = _resolve_config_path_from_args_env()
+    cfg_path = _resolve_config_path()
     _init_paths_from_config(cfg_path)
     print("Starting chart generator in STDIO mode (no network required)...")
     mcp.run(transport="stdio")
