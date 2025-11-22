@@ -28,6 +28,7 @@ from deepinsight.service.schemas.conference import (
 
 from deepinsight.service.research.research import ResearchService
 from deepinsight.service.schemas.research import ResearchRequest, SceneType, PPTGenerateRequest
+from deepinsight.service.schemas.streaming import Message, MessageContent, MessageContentType
 from deepinsight.cli.commands.stream import run_research_and_save_report_sync, make_report_filename
 from deepinsight.core.types.graph_config import SearchAPI
 
@@ -196,7 +197,12 @@ Examples:
                 service=research_service,
                 request=ResearchRequest(
                     conversation_id=conv_id,
-                    query=query,
+                    messages=[
+                        Message(
+                            content=MessageContent(text=query),
+                            content_type=MessageContentType.plain_text,
+                        )
+                    ],
                     scene_type=SceneType.CONFERENCE_RESEARCH,
                     allow_user_clarification=False,
                     allow_edit_research_brief=False,
@@ -270,7 +276,12 @@ Examples:
                 service=research_service,
                 request=ResearchRequest(
                     conversation_id=conv_id,
-                    query=query,
+                    messages=[
+                        Message(
+                            content=MessageContent(text=query),
+                            content_type=MessageContentType.plain_text,
+                        )
+                    ],
                     scene_type=SceneType.CONFERENCE_QA,
                     allow_user_clarification=False,
                     allow_edit_research_brief=False,

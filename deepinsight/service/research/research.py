@@ -37,7 +37,7 @@ from deepinsight.core.agent.conference_research.supervisor import graph as confe
 from deepinsight.core.agent.deep_research.supervisor import graph as deep_research_graph
 from deepinsight.core.agent.deep_research.parallel_supervisor import graph as parallel_deep_research_graph
 from deepinsight.core.agent.conference_research.ppt_generate import graph as ppt_generate_graph
-from deepinsight.service.schemas.research import ResearchRequest, SceneType, PPTGenerateRequest, PdfGenerateRequest
+from deepinsight.service.schemas.research import ResearchRequest, SceneType, PPTGenerateRequest, PdfGenerateRequest, ArgOptionsGeneric, LLMConfig
 from deepinsight.utils.trans_md_to_pdf import save_markdown_as_pdf
 
 
@@ -69,8 +69,10 @@ class ResearchService:
 
     def _build_graph_config(self, req: ResearchRequest) -> dict:
         """Build a graph_config with request-first precedence, falling back to config.yaml."""
-        # Prefer request-provided LLM configs, else use system defaults
-        model_configs = req.args.llm_options if (getattr(req, "args", None) and getattr(req.args, "llm_options", None)) else self.config.llms
+        # Prefer request-provided LLM configs, else use system defaults (wrapped)
+        model_configs = req.args.llm_options if (
+            getattr(req, "args", None) and getattr(req.args, "llm_options", None)
+        ) else self.get_default_config()
         models, default_model = init_langchain_models_from_llm_config(model_configs)
 
         # Read scenario-specific flags and filters (typed access) with request override
@@ -167,7 +169,7 @@ class ResearchService:
         Execute the research chat and yield StreamEvent.
     
         Parameters:
-        - request: ResearchRequest with conversation_id, query and optional args
+        - request: ResearchRequest with conversation_id, messages and optional args
         - scene_type: 从请求中读取，选择对应的 graph
         """
         graph_config = self._build_graph_config(request)
@@ -180,7 +182,7 @@ class ResearchService:
         scene_graph = self._select_scene_graph(request)
         async for event in adapter.run_graph(
             graph=scene_graph,
-            query=request.query,
+            messages=request.messages,
             graph_config=graph_config,
             conversation_id=request.conversation_id,
         ):
@@ -200,7 +202,7 @@ class ResearchService:
         # 选择模型配置：优先使用请求参数中的 llm_options，其次使用全局配置
         model_configs = request.args.llm_options if (
             getattr(request, "args", None) and getattr(request.args, "llm_options", None)
-        ) else self.config.llms
+        ) else self.get_default_config()
         if len(model_configs) == 0:
             raise ValueError(f"Provide at least one LLM configuration")
         models, default_model = init_langchain_models_from_llm_config(model_configs)
@@ -248,7 +250,7 @@ class ResearchService:
     async def pdf_generate(self, request: PdfGenerateRequest):
         conversation_id = request.conversation_id
         model_configs = request.args.llm_options if (
-                request.args and request.args.llm_options) else self.config.llms
+                request.args and request.args.llm_options) else self.get_default_config()
         if len(model_configs) == 0:
             raise ValueError(f"Provide at least one LLM configuration")
         models, default_model = init_langchain_models_from_llm_config(llm_config=model_configs)
@@ -365,3 +367,18 @@ class ResearchService:
             f.write(json.dumps(cache_data, ensure_ascii=False, indent=2))
 
         return buffer, file_name
+
+    def get_default_config(self) -> List[ArgOptionsGeneric[LLMConfig]]:
+        return [
+            ArgOptionsGeneric(
+                type=each.type,
+                params=LLMConfig(
+                    type=each.type,
+                    model=each.model,
+                    base_url=each.base_url,
+                    api_key=each.api_key,
+                    setting=each.setting,
+                ),
+            )
+            for each in self.config.llms
+        ]

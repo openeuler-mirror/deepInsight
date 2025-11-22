@@ -10,6 +10,7 @@ from langchain_openai import ChatOpenAI
 
 from deepinsight.config.config import Config
 from deepinsight.config.llm_config import LLMConfig
+from deepinsight.service.schemas.research import ArgOptionsGeneric
 from lightrag.llm.openai import openai_complete_if_cache
 
 
@@ -42,7 +43,7 @@ def _normalize_settings_kwargs(setting: Any) -> Dict[str, Any]:
 
 
 def init_langchain_models_from_llm_config(
-    llm_config: List[LLMConfig],
+    llm_config: List[LLMConfig | ArgOptionsGeneric[LLMConfig]],
 ) -> Tuple[Dict[str, BaseChatModel], BaseChatModel]:
     """
     初始化 LangChain 所需的聊天模型集合，并返回默认模型。
@@ -54,16 +55,42 @@ def init_langchain_models_from_llm_config(
     models: Dict[str, BaseChatModel] = {}
     default_model: Optional[BaseChatModel] = None
 
+    def _extract_fields(item: Any) -> tuple[str, str, Optional[str], Optional[str], Any]:
+        """
+        Extract (provider, model, base_url, api_key, setting) from either LLMConfig
+        or ArgOptionsGeneric[LLMConfig]-like objects.
+        """
+        # ArgOptionsGeneric
+        if hasattr(item, "params") and hasattr(item, "type"):
+            provider = getattr(item, "type")
+            params = getattr(item, "params")
+            model = getattr(params, "model", None)
+            base_url = getattr(params, "base_url", None)
+            api_key = getattr(params, "api_key", None)
+            setting = getattr(params, "setting", None)
+            return provider, model, base_url, api_key, setting
+        # Plain LLMConfig
+        provider = getattr(item, "type", None)
+        model = getattr(item, "model", None)
+        base_url = getattr(item, "base_url", None)
+        api_key = getattr(item, "api_key", None)
+        setting = getattr(item, "setting", None)
+        return provider, model, base_url, api_key, setting
+
     for each in llm_config:
-        key = f"{each.type}:{each.model}"
-        settings_kwargs = _normalize_settings_kwargs(each.setting)
+        provider, model_name, base_url, api_key, setting = _extract_fields(each)
+        if not provider or not model_name:
+            logging.error(f"Invalid LLM item, missing provider/model: {each}")
+            continue
+        key = f"{provider}:{model_name}"
+        settings_kwargs = _normalize_settings_kwargs(setting)
         settings_kwargs.setdefault("timeout", 300)
         try:
             model = init_chat_model(
-                model_provider=each.type,
-                model=each.model,
-                api_key=each.api_key,
-                base_url=each.base_url,
+                model_provider=provider,
+                model=model_name,
+                api_key=api_key,
+                base_url=base_url,
                 **settings_kwargs,
             )
             models[key] = model
@@ -77,9 +104,9 @@ def init_langchain_models_from_llm_config(
                 f"Cannot directly init model {key} via init_chat_model, falling back to ChatOpenAI. Error: {e}"
             )
             model = ChatOpenAI(
-                model=each.model,
-                api_key=each.api_key,
-                base_url=each.base_url,
+                model=model_name,
+                api_key=api_key,
+                base_url=base_url,
                 **settings_kwargs,
             )
             models[key] = model

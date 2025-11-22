@@ -22,7 +22,7 @@ class LLMConfig(BaseModel):
     - setting: 生成参数（LLMSetting，可选）
     """
 
-    type: str = Field(..., description="LLM provider, e.g., openai, deepseek, anthropic")
+    type: Optional[str] = Field(None, description="LLM provider, e.g., openai, deepseek, anthropic")
     model: str = Field(..., description="Model name, e.g., gpt-4")
     base_url: Optional[str] = Field(None, description="Model API base URL")
     api_key: Optional[str] = Field(None, description="Model API key")

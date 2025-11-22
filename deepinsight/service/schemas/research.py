@@ -1,12 +1,20 @@
 from __future__ import annotations
 
-from typing import Optional, List
+from typing import Optional, List, TypeVar, Generic
 from enum import Enum
 
 from pydantic import BaseModel, Field, ConfigDict
 
 from deepinsight.core.types.graph_config import SearchAPI
 from deepinsight.config.llm_config import LLMConfig
+from deepinsight.service.schemas.streaming import Message
+
+
+T = TypeVar("T")
+
+class ArgOptionsGeneric(BaseModel, Generic[T]):
+    type: str = Field(..., description="Arg option item type")
+    params: T = Field(..., description="Arg option item params")
 
 
 class SceneType(str, Enum):
@@ -18,9 +26,9 @@ class SceneType(str, Enum):
 
 class ResearchArgs(BaseModel):
     """Optional arguments to customize research."""
-    llm_options: Optional[List[LLMConfig]] = Field(
-        default=None,
-        description="Override default LLM configs; if absent, use config.yaml",
+    llm_options: Optional[List[ArgOptionsGeneric[LLMConfig]]] = Field(
+        default=None, 
+        description="LLM arguments"
     )
 
 
@@ -30,7 +38,7 @@ class ResearchRequest(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     conversation_id: str = Field(..., description="Unique identifier of the conversation/session")
-    query: str = Field(..., description="User input to start or resume research")
+    messages: List[Message] = Field(..., description="List of messages in the conversation")
     scene_type: Optional[SceneType] = Field(
         None,
         description="Conversation scene type: research or conference",
