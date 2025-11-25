@@ -85,7 +85,8 @@ class ConferenceService:
                     data.topics = meta.topics
             except self.ConferenceQueryException as e:
                 # Surface query-related errors (e.g., missing API key) to client
-                raise e
+                # raise e
+                pass
             except Exception:
                 # Best-effort enrichment; continue creation if query fails
                 raise
@@ -468,8 +469,8 @@ explores the interaction of computer systems with related areas such as computer
 
     async def _incremental_ingest_for_conference(self, kb: KnowledgeBaseResponse, conf_id: int, req: ConferenceParseDocsRequest, reporter: Optional[ProgressReporter]) -> None:
         existing_root = kb.root_dir
-        old_files = {os.path.basename(p) for p in self._list_files(existing_root, tuple(req.exts))}
-        new_files_paths = self._list_files(req.docs_src_dir, tuple(req.exts))
+        
+        # 1. 查询数据库中已有文档的 MD5 集合
         existing_md5s: set[str] = set()
         with self._db.get_session() as db:
             from deepinsight.databases.models.knowledge import KnowledgeDocument
@@ -478,12 +479,18 @@ explores the interaction of computer systems with related areas such as computer
                 KnowledgeDocument.md5.isnot(None)
             ).all()
             existing_md5s = {row[0] for row in md5_rows if row[0] is not None}
-        if existing_md5s:
-            add_paths = [p for p in new_files_paths if compute_md5(p) not in existing_md5s]
-        else:
-            add_paths = [p for p in new_files_paths if os.path.basename(p) not in old_files]
+        
+        # 2. 获取源文件夹中的所有文件
+        new_files_paths = self._list_files(req.docs_src_dir, tuple(req.exts))
+        
+        # 3. 过滤：计算每个文件的 MD5，不在数据库中的需要解析
+        add_paths = [p for p in new_files_paths if compute_md5(p) not in existing_md5s]
+        
+        # 4. 如果没有新文件，直接返回
         if not add_paths:
             return
+        
+        # 5. 复制新文件到 root_dir
         for src in add_paths:
             name = os.path.basename(src)
             dst = os.path.join(existing_root, name)

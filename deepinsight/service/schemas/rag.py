@@ -56,7 +56,6 @@ class IndexResult(BaseModel):
 class Passage(BaseModel):
     """Search evidence chunk."""
 
-    doc_id: str
     chunk_id: str
     text: str
     score: float

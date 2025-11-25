@@ -163,7 +163,7 @@ class KnowledgeService:
         """根据 kb_id + query 进行语义检索，返回统一的 Passage 列表。"""
         with self._db.get_session() as session:
             kb, working_dir = await self._get_or_create_rag_for_kb(session, req.kb_id)
-            return await self._rag_engine.semantic_search(working_dir, req.query, req.top_k)
+            return await self._rag_engine.retrieve(working_dir, req.query, req.top_k)
 
     # ===== 完成与失败处理 =====
     async def finalize_success(self, req: FinalizeRequest) -> KnowledgeBaseResponse:

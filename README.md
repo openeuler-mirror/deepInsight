@@ -73,6 +73,26 @@ poetry run alembic upgrade head
   ```
   若在命令行模式，请将 `image_path_mode` 设为 `relative`，其余保持默认即可。
 
+### RAG 配置（多后端/多解析链）
+- 在 `config.yaml` 的 `rag` 段可分别配置 `engine`（LightRAG 或 LlamaIndex）与 `parser`（MinerU+VL 或 LlamaIndex）。
+- 支持的典型组合：
+  - `mineru_vl + lightrag`：沿用 MinerU&VL 解析 + LightRAG 索引。
+  - `mineru_vl + llamaindex`：保持现有解析链，索引改由 LlamaIndex 完成。
+  - `llamaindex + llamaindex`：由 LlamaIndex 完成“解析+索引”的全流程。
+- `mineru_vl.enable_vl` 控制是否调用视觉模型生成图片描述；`llamaindex` 段可设置 embedding/LLM、持久化路径以及是否启用 LlamaParse。
+- 示例：
+  ```yaml
+  rag:
+    engine:
+      type: lightrag
+      lightrag:
+        enable_graph_extraction: false
+    parser:
+      type: mineru_vl
+      mineru_vl:
+        enable_vl: true
+  ```
+
 ### 方式二：Web方式运行
 
 #### 启动后端服务

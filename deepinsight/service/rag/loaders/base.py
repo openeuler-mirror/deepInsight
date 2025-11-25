@@ -1,5 +1,5 @@
 import re
-from typing import Annotated, ClassVar
+from typing import Annotated, ClassVar, Optional
 
 from langchain_core.documents import Document
 from pydantic import BaseModel, Field, ConfigDict
@@ -37,7 +37,7 @@ class ParseResult(BaseModel):
     """If including new images in `self.images`, it should be a Markdown image `![](images/{key_in_images})`."""
     images: Annotated[dict[str, bytes], Field(default_factory=dict)]
     """Image mapping for text."""
-    image_regex: re.Pattern[str] | None = BaseLoader.DEFAULT_IMAGE_REGEX
+    image_regex: Optional[re.Pattern[str]] = BaseLoader.DEFAULT_IMAGE_REGEX
     """See `BaseLoader.image_regex`. What's more, if a replacement is applied to the images, it changes to `None`."""
 
     DEFAULT_IMAGE_REGEX: ClassVar[re.Pattern[str]] = BaseLoader.DEFAULT_IMAGE_REGEX
