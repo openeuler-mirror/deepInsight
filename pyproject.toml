@@ -11,10 +11,11 @@ license = { text = "MIT" }
 
 # 应用依赖（按用户提供清单）
 dependencies = [
-  "langfuse >=3.0.6",
-  "langgraph >=0.1",
+  "langfuse >= 3.0.6",
+  "langgraph >= 1.0.3",
   "langmem >= 0.0.20",
-  "langchain >= 1.0",
+  "langchain >= 1.0.7",
+  "langchain-experimental >= 0.4.0",
 
   # llm dependency
   "langchain-openai >= 1.0",
@@ -32,9 +33,9 @@ dependencies = [
 
   "langchain-community >= 0.4",
   "langchain-mcp-adapters >= 0.1",
-  "SQLAlchemy >=2.0,<3.0",
-  "alembic >=1.10",
-  "python-dotenv >=1.0",
+  "SQLAlchemy >= 2.0, < 3.0",
+  "alembic >= 1.10",
+  "python-dotenv >= 1.0",
   "fastapi >= 0.1",
   "uvicorn >= 0.10",
   "tavily-python >= 0.7.13",
@@ -46,7 +47,7 @@ dependencies = [
   "fastmcp >= 2.0",
   "arxiv >= 2.0",
   "kaleido == 0.2.1",
-  "deepagents >= 0.2",
+  "deepagents >= 0.2.7",
   "python-pptx >= 1.0",
   "plotly >= 6.0",
   "camel-ai == 0.2.60",
