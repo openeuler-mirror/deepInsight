@@ -9300,4 +9300,4 @@ sqlite-async = ["aiosqlite"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.13"
-content-hash = "7461f6d097ce9cdf082b7f4f7f2eb253553b717c756583f0057f2b3afe38d89e"
+content-hash = "bb34da49d641a44d5c81135da3ff322ffc0feafc26219f6ebbff36ba2168069a"
