@@ -37,6 +37,7 @@ from deepinsight.core.agent.conference_research.supervisor import graph as confe
 from deepinsight.core.agent.deep_research.supervisor import graph as deep_research_graph
 from deepinsight.core.agent.deep_research.parallel_supervisor import graph as parallel_deep_research_graph
 from deepinsight.core.agent.conference_research.ppt_generate import graph as ppt_generate_graph
+from deepinsight.core.types.graph_config import RetrievalConfig, RetrievalArgs, RetrievalType
 from deepinsight.service.schemas.research import ResearchRequest, SceneType, PPTGenerateRequest, PdfGenerateRequest, ArgOptionsGeneric, LLMConfig
 from deepinsight.utils.trans_md_to_pdf import save_markdown_as_pdf
 
@@ -67,7 +68,7 @@ class ResearchService:
         """Load typed deep_research configuration from scenarios config."""
         return safe_get(self.config, lambda c: c.scenarios.deep_research, None)
 
-    def _build_graph_config(self, req: ResearchRequest) -> dict:
+    def _build_graph_config(self, req: ResearchRequest, ragflow_authorization: Optional[str] = None) -> dict:
         """Build a graph_config with request-first precedence, falling back to config.yaml."""
         # Prefer request-provided LLM configs, else use system defaults (wrapped)
         model_configs = req.args.llm_options if (
@@ -124,7 +125,7 @@ class ResearchService:
                 "prompt_group": prompt_group,
                 # Provide PromptManager instance so graph nodes can fetch prompts
                 "prompt_manager": PromptManager(self.config.prompt_management),
-                "search_api": req.search_api or [],
+                "search_api": req.convert_search_type_to_search_api(),
                 # Working path from global config (workspace.work_root), absolute for consistency
                 "work_root": os.path.abspath(self.config.workspace.work_root) if getattr(self.config, "workspace", None) else None,
                 # Relative image folder under work_root for chart outputs
@@ -136,6 +137,53 @@ class ResearchService:
             "recursion_limit": 1000,
             "callbacks": [CallbackHandler()],
         }
+
+        # Process retrieval options for RAG if provided
+        # Store in dict format keyed by retrieval type
+        if "rag_retrieval" in req.search_type and req.args and req.args.retrieval_options:
+            # Map retrieval_type string to RetrievalType enum
+            type_mapping = {
+                "ragflow": RetrievalType.RAGFLOW,
+                "lightrag": RetrievalType.LIGHTRAG,
+                "llamaindex": RetrievalType.LLAMAINDEX,
+            }
+            
+            # Initialize retrieval_config dict if not exists
+            if "retrieval_config" not in graph_config["configurable"]:
+                graph_config["configurable"]["retrieval_config"] = {}
+            
+            # Process each retrieval option
+            for retrieval_option in req.args.retrieval_options:
+                retrieval_type_str = retrieval_option.type
+                retrieval_params = retrieval_option.params
+                
+                retrieval_type_enum = type_mapping.get(retrieval_type_str.lower())
+                if retrieval_type_enum:
+                    # Create nested args structure
+                    retrieval_args = RetrievalArgs(
+                        dialog_id=retrieval_params.dialog_id,
+                        kb_ids=retrieval_params.dataset_ids,
+                        document_ids=retrieval_params.document_ids,
+                        page=retrieval_params.page,
+                        page_size=retrieval_params.page_size,
+                        similarity_threshold=retrieval_params.similarity_threshold,
+                        vector_similarity_weight=retrieval_params.vector_similarity_weight,
+                        top_k=retrieval_params.top_k,
+                        top_n=retrieval_params.top_n,
+                        rerank_id=retrieval_params.rerank_id,
+                        keyword=retrieval_params.keyword,
+                        highlight=retrieval_params.highlight,
+                    )
+                    
+                    # Create retrieval config with nested args
+                    retrieval_config = RetrievalConfig(
+                        type=retrieval_type_enum,
+                        api_key=ragflow_authorization if retrieval_type_str == "ragflow" else None,
+                        args=retrieval_args,
+                    )
+                    
+                    # Store in dict keyed by retrieval type string
+                    graph_config["configurable"]["retrieval_config"][retrieval_type_enum] = retrieval_config
 
         if (req.expert_review_enable or req.parallel_expert_review_enable) and req.review_experts:
             graph_config["configurable"]["expert_defs"] = [
@@ -164,12 +212,14 @@ class ResearchService:
         self,
         *,
         request: ResearchRequest,
+        ragflow_authorization: Optional[str] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         """
         Execute the research chat and yield StreamEvent.
     
         Parameters:
         - request: ResearchRequest with conversation_id, messages and optional args
+        - ragflow_authorization: Optional authorization token for RAG services
         - scene_type: 从请求中读取，选择对应的 graph
         """
         graph_config = self._build_graph_config(request)

@@ -4,7 +4,7 @@ import os
 import re
 import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Tuple
 from rich.live import Live
 from rich.panel import Panel
 from rich.markdown import Markdown
@@ -14,9 +14,10 @@ from typing import List
 from deepinsight.config.config import load_config
 from deepinsight.config.config import Config
 from deepinsight.service.research.research import ResearchService
-from deepinsight.service.schemas.research import ResearchRequest, SceneType
+from deepinsight.service.schemas.research import ResearchRequest, SceneType, ResearchArgs, RetrievalArgs, ArgOptionsGeneric
 from deepinsight.service.schemas.streaming import Message, MessageContent, MessageContentType
-from deepinsight.core.types.graph_config import SearchAPI
+from deepinsight.databases.connection import Database
+from deepinsight.databases.models.knowledge import KnowledgeBase
 from deepinsight.cli.commands.stream import (
     run_research_and_save_report_sync,
     run_research_and_save_report,
@@ -106,11 +107,59 @@ def choose_expert(require_one: bool = False, expert_type: str = "writer", live: 
     )
     return selected or []
 
+
+def get_rag_engine_type(config: Config) -> Optional[str]:
+    """Get configured RAG engine type from config.
+    
+    Returns:
+        'lightrag', 'llamaindex', or None if not configured
+    """
+    try:
+        engine_type = config.rag.engine.type
+        if engine_type in ['lightrag', 'llamaindex']:
+            return engine_type
+        return None
+    except (AttributeError, KeyError):
+        return None
+
+
+def query_available_knowledge_bases(config: Config, engine_type: str) -> List[Tuple[int, str, str]]:
+    """Query available knowledge bases from database.
+    
+    Args:
+        config: Config object for database connection
+        engine_type: RAG engine type to filter by
+    
+    Returns:
+        List of tuples: (kb_id, display_name, status)
+    """
+    try:
+        db_instance = Database(config.database)
+        with db_instance.get_session() as db:
+            # Query knowledge bases that are ready
+            kbs = db.query(KnowledgeBase).all()
+            
+            results = []
+            for kb in kbs:
+                # Create display name
+                if kb.owner_id:
+                    display_name = f"KB-{kb.kb_id} (Conference: {kb.owner_id}) - {kb.doc_count} docs"
+                else:
+                    display_name = f"KB-{kb.kb_id} - {kb.doc_count} docs"
+                
+                results.append((kb.kb_id, display_name, kb.status))
+            
+            return results
+    except Exception as e:
+        print(f"Warning: Failed to query knowledge bases: {e}")
+        return []
+
 def run_generate_report(
     question: str,
     insight_service: ResearchService,
     scene_type: str,
-    search_types: List[SearchAPI],
+    search_types: List[str],
+    retrieval_options: Optional[List[ArgOptionsGeneric[RetrievalArgs]]],
     output_dir: str,
     conversation_id: str,
     live: Live,
@@ -127,9 +176,10 @@ def run_generate_report(
                 )
             ],
             scene_type=SceneType.DEEP_RESEARCH,
-            search_api=search_types,
+            search_type=search_types,
             expert_review_enable=False,
             expert_name=expert_name,
+            args=ResearchArgs(retrieval_options=retrieval_options) if retrieval_options else None,
         )
     if not expert_names:
         sub_file_name = make_report_filename(question=question, expert="", output_dir=output_dir)
@@ -262,7 +312,8 @@ def run_insight(config: Config, gen_pdf: bool = True, initial_topic: str | None 
     with Live(refresh_per_second=4, vertical_overflow="ellipsis") as live:
         live.console.print("[bold green]✅ DeepInsight CLI 已成功启动！输入 'exit' 或 'quit' 可退出程序。[/bold green]")
         scene_type = "deep_research"
-        search_types = [SearchAPI.TAVILY]
+        search_types = ["web_search"]
+        retrieval_options = None
         question = (initial_topic or input("💡 请输入洞察任务的问题或一个URL（按回车确认）：")).encode("utf-8", errors="ignore").decode("utf-8")
         if question.lower().strip() in {"exit", "quit"}:
             live.console.print("[yellow]⚡ 正在退出 DeepInsight CLI，请稍候...[/yellow]")
@@ -283,6 +334,63 @@ def run_insight(config: Config, gen_pdf: bool = True, initial_topic: str | None 
             question = extracted_content
         else:
             live.console.print(Panel(question, title="[cyan]🙋 你输入的任务问题如下：[/cyan]"))
+        
+        # Check RAG engine configuration
+        rag_engine = get_rag_engine_type(config)
+        
+        if rag_engine:
+            live.console.print(f"[cyan]ℹ️  检测到RAG引擎配置: {rag_engine}[/cyan]")
+            
+            # Ask user if they want to use knowledge base
+            use_kb = select_with_live_pause(
+                live,
+                message="是否使用知识库检索？",
+                choices=[
+                    "✅ 是的，使用知识库",
+                    "❌ 否，仅使用网页搜索",
+                ],
+                default="❌ 否，仅使用网页搜索",
+                long_instruction="↑/↓ 切换 | 回车确认",
+                pointer="➤ ",
+            )
+            
+            if use_kb == "✅ 是的，使用知识库":
+                # Query available knowledge bases from database
+                available_kbs = query_available_knowledge_bases(config, rag_engine)
+                
+                if available_kbs:
+                    # Let user select from available knowledge bases
+                    kb_choices = [f"{kb_id}: {display_name}" for kb_id, display_name, _ in available_kbs]
+                    
+                    selected_kbs = checkbox_with_live_pause(
+                        live,
+                        message="请选择知识库（可多选）：",
+                        choices=kb_choices,
+                        instruction="空格选择，回车确认",
+                        pointer="➤ ",
+                    )
+                    
+                    if selected_kbs:
+                        # Extract KB IDs from selection
+                        kb_ids = [choice.split(":")[0] for choice in selected_kbs]
+                        search_types.append("rag_retrieval")
+                        retrieval_options = [
+                            ArgOptionsGeneric(
+                                type=rag_engine,  # Use configured engine type
+                                params=RetrievalArgs(
+                                    dataset_ids=kb_ids,
+                                    top_k=10,
+                                    top_n=3,
+                                )
+                            )
+                        ]
+                        live.console.print(f"[green]✅ 已选择知识库: {', '.join(kb_ids)}[/green]")
+                    else:
+                        live.console.print("[yellow]⚠️  未选择任何知识库，将仅使用网页搜索[/yellow]")
+                else:
+                    live.console.print("[yellow]⚠️  未找到可用的知识库，将仅使用网页搜索[/yellow]")
+        else:
+            live.console.print("[yellow]⚠️  未配置RAG引擎（仅支持lightrag/llamaindex），将仅使用网页搜索[/yellow]")
         action_mode = select_with_live_pause(
             live,
             message="请选择任务模式：",
@@ -302,6 +410,7 @@ def run_insight(config: Config, gen_pdf: bool = True, initial_topic: str | None 
                 insight_service=insight_service,
                 scene_type=scene_type,
                 search_types=search_types,
+                retrieval_options=retrieval_options,
                 output_dir=output_dir,
                 conversation_id=conversation_id,
                 live=live,

@@ -420,7 +420,7 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                     model=llm,
                     tools=[batch_analyze_papers]
                 )
-                agent.invoke(
+                await agent.ainvoke(
                     {"messages": [{"role": "user",
                                    "content": f"论文集合相关信息如下，请批量对如下论文进行分析：/{final_report}, 论文保存路径：{output_file}"}]},
                 )

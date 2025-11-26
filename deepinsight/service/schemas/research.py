@@ -24,11 +24,31 @@ class SceneType(str, Enum):
     CONFERENCE_QA = "conference_qa"
 
 
+class RetrievalArgs(BaseModel):
+    """Arguments for RAG retrieval configuration."""
+    dialog_id: Optional[str] = Field(default=None, description="Dialog id")
+    dataset_ids: Optional[List[str]] = Field(default_factory=list, description="List of dataset IDs")
+    document_ids: Optional[List[str]] = Field(default_factory=list, description="List of document IDs")
+    page: Optional[int] = Field(1, description="Page number for pagination")
+    page_size: Optional[int] = Field(20, description="Number of items per page")
+    similarity_threshold: Optional[float] = Field(0.3, description="Threshold for similarity")
+    vector_similarity_weight: Optional[float] = Field(0.4, description="Weight for vector similarity")
+    top_k: Optional[int] = Field(100, description="Top-K results to retrieve")
+    top_n: Optional[int] = Field(3, description="Top-N results to retrieve")
+    rerank_id: Optional[str] = Field(None, description="Re-rank model ID")
+    keyword: Optional[bool] = Field(False, description="Enable keyword matching")
+    highlight: Optional[bool] = Field(False, description="Enable text highlighting")
+
+
 class ResearchArgs(BaseModel):
     """Optional arguments to customize research."""
     llm_options: Optional[List[ArgOptionsGeneric[LLMConfig]]] = Field(
         default=None, 
         description="LLM arguments"
+    )
+    retrieval_options: Optional[List[ArgOptionsGeneric[RetrievalArgs]]] = Field(
+        default=None,
+        description="Retrieval arguments for RAG"
     )
 
 
@@ -44,9 +64,9 @@ class ResearchRequest(BaseModel):
         description="Conversation scene type: research or conference",
     )
 
-    search_api: Optional[List[SearchAPI]] = Field(
+    search_type: Optional[List[str]] = Field(
         None,
-        description="List of search API providers to use (Anthropic, OpenAI, Tavily, etc.)",
+        description="List of search types to use: 'rag_retrieval', 'web_search'",
     )
 
     # Optional behavior flags; override scenario config when provided
@@ -63,6 +83,34 @@ class ResearchRequest(BaseModel):
     parallel_expert_review_enable: Optional[bool] = Field(False)
     expert_name: Optional[str] = Field(None)
     write_experts: Optional[List[str]] = Field(None)
+
+    def convert_search_type_to_search_api(self) -> List[SearchAPI]:
+        """Convert user-facing search_type to internal SearchAPI enums.
+        
+        Returns:
+            List of SearchAPI enum values based on search_type and scene_type
+        """
+        if not self.search_type:
+            return [SearchAPI.TAVILY]  # Default to web search
+        
+        type_mapping = {
+            "rag_retrieval": SearchAPI.RAG_RETRIVAL,
+            "web_search": SearchAPI.TAVILY,
+        }
+        
+        converted_types = []
+        for st in self.search_type:
+            if st in type_mapping:
+                api_type = type_mapping[st]
+                if api_type not in converted_types:
+                    converted_types.append(api_type)
+        
+        # For conference scenarios, always include PAPER_STATIC_DATA
+        if self.scene_type in [SceneType.CONFERENCE_RESEARCH, SceneType.CONFERENCE_QA]:
+            if SearchAPI.PAPER_STATIC_DATA not in converted_types:
+                converted_types.append(SearchAPI.PAPER_STATIC_DATA)
+        
+        return converted_types if converted_types else [SearchAPI.TAVILY]
 
 
 class PPTGenerateRequest(BaseModel):

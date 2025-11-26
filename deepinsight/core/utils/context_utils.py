@@ -1,7 +1,7 @@
 from typing import Callable, Iterable
 
 from langchain.agents.middleware import SummarizationMiddleware
-from langchain.agents.middleware.summarization import DEFAULT_SUMMARY_PROMPT, SUMMARY_PREFIX
+from langchain.agents.middleware.summarization import DEFAULT_SUMMARY_PROMPT
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import MessageLikeRepresentation
 from langchain_core.messages.utils import count_tokens_approximately
@@ -23,7 +23,6 @@ class DefaultSummarizationMiddleware(SummarizationMiddleware):
             messages_to_keep: int = _DEFAULT_MESSAGES_TO_KEEP,
             token_counter: TokenCounter = count_tokens_approximately,
             summary_prompt: str = DEFAULT_SUMMARY_PROMPT,
-            summary_prefix: str = SUMMARY_PREFIX,
     ) -> None:
         """Initialize the middleware, providing a default for max_tokens_before_summary."""
         # Call the parent class's __init__ method with the provided or default values.
@@ -33,5 +32,4 @@ class DefaultSummarizationMiddleware(SummarizationMiddleware):
             messages_to_keep=messages_to_keep,
             token_counter=token_counter,
             summary_prompt=summary_prompt,
-            summary_prefix=summary_prefix,
         )

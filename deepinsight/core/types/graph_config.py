@@ -36,6 +36,46 @@ class ExpertDef(BaseModel):
     prompt_key: str
     type: str  # 'reviewer' 或 'writer'
 
+
+class RetrievalType(str, Enum):
+    """Enumeration of retrieval engine types."""
+    RAGFLOW = "ragflow"
+    LIGHTRAG = "lightrag"
+    LLAMAINDEX = "llamaindex"
+
+    def __str__(self):
+        return self.value
+
+
+class RetrievalArgs(BaseModel):
+    """Arguments for retrieval requests."""
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    
+    dialog_id: Optional[str] = Field(default=None, description="Dialog ID for retrieval context")
+    kb_ids: List[str] = Field(default_factory=list, description="Knowledge base IDs to query")
+    document_ids: List[str] = Field(default_factory=list, description="Specific document IDs to retrieve from")
+    page: int = Field(default=1, description="Page number for pagination")
+    page_size: int = Field(default=20, description="Number of items per page")
+    similarity_threshold: float = Field(default=0.3, description="Similarity threshold for retrieval")
+    vector_similarity_weight: float = Field(default=0.4, description="Weight for vector similarity")
+    top_k: int = Field(default=10, description="Top-K results to retrieve")
+    top_n: int = Field(default=3, description="Top-N results to return")
+    rerank_id: Optional[str] = Field(default=None, description="Re-rank model ID")
+    keyword: bool = Field(default=False, description="Enable keyword matching")
+    highlight: bool = Field(default=False, description="Enable text highlighting")
+
+
+class RetrievalConfig(BaseModel):
+    """Configuration for RAG retrieval tool.
+    
+    Stores retrieval type, parameters, and authentication in a structured format.
+    """
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    
+    type: RetrievalType = Field(..., description="Type of retrieval engine")
+    api_key: Optional[str] = Field(default=None, description="API key for retrieval service")
+    args: RetrievalArgs = Field(default_factory=RetrievalArgs, description="Retrieval request arguments")
+
 class ResearchConfig(BaseModel):
     """Typed structure for LangGraph configurable options.
 
@@ -116,6 +156,12 @@ class ResearchConfig(BaseModel):
     chart_image_dir: Optional[str] = Field(
         default=None,
         description="Relative image folder under work_root for chart PNG/HTML outputs",
+    )
+
+    # Retrieval configuration (dict keyed by retrieval type)
+    retrieval_config: Dict[RetrievalType, RetrievalConfig] = Field(
+        default_factory=dict,
+        description="Dictionary of retrieval configurations keyed by retrieval type"
     )
 
     expert_name: Optional[str] = Field(None)

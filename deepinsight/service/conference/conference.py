@@ -327,7 +327,7 @@ explores the interaction of computer systems with related areas such as computer
             await self._knowledge.mark_failed(kb.kb_id)
             raise
         
-    async def ensure_conference_and_ingest_docs(self, req: ConferenceParseDocsRequest, reporter: Optional[ProgressReporter] = None) -> None:
+    async def ensure_conference_and_ingest_docs(self, req: ConferenceParseDocsRequest, reporter: Optional[ProgressReporter] = None) -> Tuple[int, int]:
         """Ensure conference exists and ingest documents.
         - If conference not exists: create conference, copy folder, register docs.
         - If exists: diff new folder vs existing KB root_dir and ingest incrementally.
@@ -346,8 +346,8 @@ explores the interaction of computer systems with related areas such as computer
 
         if kb is None:
             # Initial ingestion path
-            await self._initial_ingest_for_conference(conf_id, req, reporter)
-            return
+            kb_id = await self._initial_ingest_for_conference(conf_id, req, reporter)
+            return conf_id, kb_id
 
         # Before incremental ingestion: retry unfinished docs if any
         if kb is not None:
@@ -355,7 +355,7 @@ explores the interaction of computer systems with related areas such as computer
 
         # Incremental ingestion path
         await self._incremental_ingest_for_conference(kb, conf_id, req, reporter)
-        return
+        return conf_id, kb.kb_id
 
     async def _reparse_unfinished_docs_for_conference(self, kb_id: int, conference_id: int, reporter: Optional[ProgressReporter]) -> None:
         try:
@@ -426,7 +426,7 @@ explores the interaction of computer systems with related areas such as computer
             conf_id = created.conference_id
         return conf_id
 
-    async def _initial_ingest_for_conference(self, conf_id: int, req: ConferenceParseDocsRequest, reporter: Optional[ProgressReporter]) -> None:
+    async def _initial_ingest_for_conference(self, conf_id: int, req: ConferenceParseDocsRequest, reporter: Optional[ProgressReporter]) -> int:
         target_root = os.path.join(self._config.rag.work_root, "original_files", "conference", str(conf_id))
         os.makedirs(target_root, exist_ok=True)
         dest_dir = target_root
@@ -457,6 +457,7 @@ explores the interaction of computer systems with related areas such as computer
                         db.commit()
                 raise ValueError("No documents ingested")
             await self._knowledge.finalize_success(FinalizeRequest(kb_id=kb.kb_id, owner_id=conf_id))
+            return kb.kb_id
         except Exception:
             await self._knowledge.mark_failed(kb.kb_id)
             await self._knowledge.cleanup_kb(kb.kb_id)

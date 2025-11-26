@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 from typing import List, Optional
+import copy
 
 from langchain_core.documents import Document as LCDocument
 
-from deepinsight.config.config import CONFIG, Config
+from deepinsight.config.config import Config
 from deepinsight.config.rag_config import RAGEngineType, RAGParserType
 from deepinsight.service.rag.backends import (
     LightRAGBackend,
@@ -17,13 +18,20 @@ from deepinsight.service.rag.parsers import LlamaIndexParser, MineruVLParser
 from deepinsight.service.rag.parsers.base import BaseDocumentParser
 from deepinsight.service.rag.types import LoaderOutput
 from deepinsight.service.schemas.rag import DocumentPayload, IndexResult, Passage
+from deepinsight.core.types.graph_config import RetrievalConfig, RetrievalType
+from langchain_core.tools import Tool, tool as make_tool
+from deepinsight.databases.connection import Database
+from deepinsight.databases.models.knowledge import KnowledgeBase
 
 
 class RAGEngine:
     """Configurable orchestration layer that wires parser and backend implementations."""
 
     def __init__(self, config: Optional[Config] = None):
-        self._config = config or CONFIG
+        if config is None:
+            from deepinsight.config.config import CONFIG
+            config = CONFIG
+        self._config = config
         if self._config is None:
             raise RuntimeError("Config not initialized; load config before using RAG engine")
         self._backend: BaseRAGBackend = self._build_backend()
@@ -48,6 +56,128 @@ class RAGEngine:
 
     async def retrieve(self, working_dir: str, query: str, top_k: int = 8) -> List[Passage]:
         return await self._backend.retrieve(working_dir, query, top_k)
+
+    @classmethod
+    def from_retrieval_config(cls, retrieval_config: RetrievalConfig, config: Optional[Config] = None) -> "RAGEngine":
+        """Create a RAGEngine instance from a RetrievalConfig."""
+        if config is None:
+            from deepinsight.config.config import CONFIG
+            config = CONFIG
+        base_config = config
+        if base_config is None:
+            raise RuntimeError("Base config not initialized")
+        
+        # Create a copy of the config to avoid modifying the global one
+        engine_config = copy.deepcopy(base_config)
+        
+        # Map RetrievalType to RAGEngineType
+        if retrieval_config.type == RetrievalType.LIGHTRAG:
+            engine_config.rag.engine.type = RAGEngineType.lightrag
+        elif retrieval_config.type == RetrievalType.LLAMAINDEX:
+            engine_config.rag.engine.type = RAGEngineType.llamaindex
+        else:
+            raise ValueError(f"Unsupported retrieval type for RAGEngine: {retrieval_config.type}")
+            
+        return cls(engine_config)
+
+    def as_tool(self, retrieval_config: RetrievalConfig) -> Tool:
+        """Create a LangChain tool from this engine instance."""
+        
+        async def retrieve_func(question: str):
+            kb_ids = retrieval_config.args.kb_ids
+            if not kb_ids:
+                return "[]"
+
+            top_k = retrieval_config.args.top_k or 10
+            all_passages = []
+            
+            # Initialize database connection
+            db = Database(self._config.database)
+            
+            with db.get_session() as session:
+                for kb_id in kb_ids:
+                    # Resolve working_dir from DB
+                    # Try to treat kb_id as integer ID first
+                    try:
+                        kid = int(kb_id)
+                        kb = session.query(KnowledgeBase).filter(KnowledgeBase.kb_id == kid).first()
+                        if kb:
+                            working_dir = kb.index_dir or os.path.join(self._config.rag.work_root, "rag_storage", str(kb.kb_id))
+                        else:
+                            # Fallback if not found in DB but might be a path or ID
+                            working_dir = os.path.join(self._config.rag.work_root, "rag_storage", str(kb_id))
+                    except ValueError:
+                        # If kb_id is not an int, check if it's a path
+                        if os.path.isabs(kb_id) or "/" in kb_id:
+                            working_dir = kb_id
+                        else:
+                            working_dir = os.path.join(self._config.rag.work_root, "rag_storage", str(kb_id))
+                    
+                    try:
+                        passages = await self.retrieve(working_dir, question, top_k)
+                        all_passages.extend(passages)
+                    except Exception as e:
+                        import logging
+                        logging.warning(f"Failed to retrieve from KB {kb_id} (path: {working_dir}): {e}")
+
+            # Sort combined results by score (descending) and take top_k
+            # Note: Scores across different indices might not be perfectly comparable, but it's a best effort
+            all_passages.sort(key=lambda p: p.score, reverse=True)
+            final_passages = all_passages[:top_k]
+            
+            # Format results
+            import json
+            results = [
+                {
+                    "chunk_id": passage.chunk_id,
+                    "text": passage.text,
+                    "score": passage.score,
+                }
+                for passage in final_passages
+            ]
+            return json.dumps(results, indent=4, ensure_ascii=False)
+
+        def sync_retrieve_func(question: str):
+            """
+            Core retrieval tool for the RAG workflow: extracts highly relevant knowledge chunks
+            from the specified knowledge base based on the input question. 
+
+            Args:
+                question (str): The question used for knowledge retrieval.
+                    The question must be a complete, meaningful sentence containing key
+                    entities (e.g., "2024 new-energy vehicles") and clear qualifiers
+                    (e.g., "year-over-year growth", "regulatory policy"). Avoid vague
+                    expressions such as "How do I do this?"
+            """
+
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            if loop.is_running():
+                # If we are in a running loop (e.g. nested), we might need nest_asyncio or similar,
+                # but for now assuming standard usage or thread pool where loop might not be running.
+                # Actually, if loop is running, asyncio.run will fail.
+                # For thread pool usage (like in best_paper_analysis), there is no running loop in that thread usually.
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    return pool.submit(asyncio.run, retrieve_func(question)).result()
+            else:
+                return loop.run_until_complete(retrieve_func(question))
+
+        def _create_tool_description(f):
+            tool = make_tool(f, parse_docstring=True)
+            return dict(description=tool.description, args_schema=tool.args_schema)
+
+        return Tool.from_function(
+            func=sync_retrieve_func,
+            name=f"{retrieval_config.type}_knowledge_retrieve",
+            coroutine=retrieve_func,
+            **_create_tool_description(sync_retrieve_func)
+        )
 
     def _build_backend(self) -> BaseRAGBackend:
         engine_type = self._config.rag.engine.type
