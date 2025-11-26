@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from deepinsight.config.app_config import AppInfo
 from deepinsight.config.database_config import DatabaseConfig
+from deepinsight.config.file_storage_config import FileStorageConfig
 from deepinsight.config.prompt_management_config import PromptManagementConfig
 from deepinsight.config.llm_config import LLMConfig
 from deepinsight.config.scenarios_config import ScenariosConfig
@@ -48,6 +49,8 @@ class Config(BaseModel):
         default_factory=WorkspaceConfig,
         description="General workspace path configuration",
     )
+
+    file_storage: FileStorageConfig = Field(default_factory=FileStorageConfig)
 
 
 CONFIG: Optional[Config] = None

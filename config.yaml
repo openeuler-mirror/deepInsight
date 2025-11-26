@@ -17,6 +17,16 @@ llms:
       max_tokens: 4096
       timeout: 120
 
+# 文件存储服务（可选）默认使用本地存储且不提供 HTTP 访问
+file_storage:
+  type: local
+  remote_access: false
+#  remote_access:
+#    attach: true  # 是否附加到 DeepInsight 主服务
+#    host:  # 仅 attach 为 false 时生效
+#    port:  # 仅 attach 为 false 时生效
+#    path_prefix: "/api/v1/deepinsight/res/"
+
 # 通用工作路径配置（独立于 RAG）
 workspace:
   work_root: ./data

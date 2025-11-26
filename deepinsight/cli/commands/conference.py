@@ -113,6 +113,8 @@ Examples:
     def _get_service(self) -> ConferenceService:
         if self._service is None:
             config = self._get_config()
+            from deepinsight.utils.file_storage import get_storage_impl
+            get_storage_impl(config)
             self._service = ConferenceService(config)
         return self._service
 
