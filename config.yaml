@@ -68,7 +68,7 @@ prompt_management:
       label: "latest"
     conference_qa:
       label: "latest"
-    conference_supervisor:
+    conference_research:
       label: "latest"
     conference_overview:
       label: "latest"

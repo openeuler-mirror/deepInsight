@@ -378,7 +378,7 @@ async def deep_research_team_node(state: SupervisorState, config: RunnableConfig
     parent_configurable = config.get("configurable", {})
     deep_research_config = {
         **parent_configurable,
-        "prompt_group": SceneType.DEEP_RESEARCH.value,
+        "prompt_group": SceneType.CONFERENCE_RESEARCH.value,
         "allow_user_clarification": False,
         "allow_edit_research_brief": False,
         "allow_edit_report_outline": False,
