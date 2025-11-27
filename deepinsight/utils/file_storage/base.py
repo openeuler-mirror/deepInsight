@@ -8,6 +8,8 @@ from typing import Type, TypeVar, TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from deepinsight.config.file_storage_config import ObsMappingConfig
+
 if TYPE_CHECKING:
     from deepinsight.config.config import Config
 else:
@@ -67,6 +69,7 @@ class BaseFileStorage(ABC, BaseModel):
     - Store images for a document.
     - Store images for a report.
     """
+    keymap: ObsMappingConfig = ObsMappingConfig()
 
     def __aenter__(self):
         return self
@@ -106,13 +109,18 @@ class BaseFileStorage(ABC, BaseModel):
         raise NotImplementedError("file_get")
 
     # utils begin
-    async def store_document_images(self, knowledge_base_id: str, document_id: str, images: dict[str, bytes]) -> None:
-        await self.bucket_create(str(knowledge_base_id), exist_ok=True)
+    async def document_images_init_bucket(self, knowledge_base_id: str, exist_ok: bool = True) -> None:
+        bucket = self.keymap.kb_doc_image.bucket.format(kb_id=knowledge_base_id)
+        await self.bucket_create(bucket, exist_ok=exist_ok)
+
+    async def document_images_store(self, knowledge_base_id: str, document_id: str, images: dict[str, bytes]) -> None:
         if not images:
             return
-        bucket = knowledge_base_id
+        bucket = self.keymap.kb_doc_image.bucket.format(kb_id=knowledge_base_id)
         upload_tasks = [
-            self.file_add(bucket, f"{document_id}/{name}", content)
+            self.file_add(bucket, self.keymap.kb_doc_image.object.format_map(
+                dict(kb_id=knowledge_base_id, doc_id=document_id, img_path=name)
+            ), content)
         for name, content in images.items()
         ]
         await asyncio.gather(*upload_tasks)

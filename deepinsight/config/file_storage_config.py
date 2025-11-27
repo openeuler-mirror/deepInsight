@@ -1,8 +1,9 @@
 """Configuration about how to store files referenced by Markdown text."""
 from enum import Enum
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar, Type
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator, ValidationError
+from pydantic_core import ErrorDetails, InitErrorDetails
 
 
 class StorageType(str, Enum):
@@ -53,11 +54,57 @@ class ConfigLocal(_ConfigModel):
         return self.root_dir or workspace_root
 
 
+class MappingItem(_ConfigModel):
+    """Specify how to map a storage request to OBS bucket name and filename.
+
+    `bucket` and `object` are in Python str.format() style. Available keys differs from every usage.
+    """
+    model_config = ConfigDict(frozen=True)
+    bucket: str
+    object: str
+
+
+_MAPPING_AVAILABLE_KEYS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = dict(
+    kb_doc_image=(("kb_id",), ("kb_id", "doc_id", "img_path"))
+)
+
+
+class ObsMappingConfig(_ConfigModel):
+    model_config = ConfigDict(frozen=True)
+
+    kb_doc_image: MappingItem = MappingItem(bucket="{kb_id}", object="{doc_id}/{img_path}")
+
+    @model_validator(mode="after")
+    def _check_mapping_keys(self):
+        errors: list[tuple[str, tuple, str]] = []
+        for rule_name, key_rules in _MAPPING_AVAILABLE_KEYS.items():
+            mapping: MappingItem = getattr(self, rule_name)
+            for field, keys in zip(("bucket", "object"), key_rules):
+                try:
+                    getattr(mapping, field).format(**{k: "" for k in keys})
+                except KeyError as e:
+                    key_msg = "', '".join(keys)
+                    errors.append((f"Rule has a unsupported key {e}. Available: '{key_msg}'.",
+                                   (rule_name, field), mapping.bucket))
+                except ValueError as e:
+                    errors.append((str(e), (rule_name, field), mapping.bucket))
+        if errors:
+            raise ValidationError.from_exception_data(
+                type(self).__name__,
+                [
+                    InitErrorDetails(loc=loc, type="value_error", input=inputs, ctx=dict(error=msg))
+                    for msg, loc, inputs in errors
+                ]
+            )
+        return self
+
+
 class FileStorageConfig(_ConfigModel):
     type: StorageType = StorageType.LOCAL
     s3: ConfigS3 | None = None
     local: Annotated[ConfigLocal | None, Field(default_factory=ConfigLocal)]
     remote_access: bool | ListenConfig = False
+    map_rule: Annotated[ObsMappingConfig, Field(default_factory=ObsMappingConfig)]
 
     _REQUIRED_FIELD_MAP: ClassVar[dict[StorageType, str]] = {
         StorageType.LOCAL: "local",

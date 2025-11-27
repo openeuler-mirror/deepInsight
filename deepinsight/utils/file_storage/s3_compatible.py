@@ -91,7 +91,7 @@ class S3CompatibleObsClient(BaseFileStorage):
 
     @classmethod
     def from_config(cls, config: Config) -> "S3CompatibleObsClient":
-        return cls(config=config.file_storage.s3)
+        return cls(config=config.file_storage.s3, keymap=config.file_storage.map_rule)
 
     async def bucket_create(self, bucket: str, *, exist_ok: bool = False) -> None:
         """Create a new bucket."""

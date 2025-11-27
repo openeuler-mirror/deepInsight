@@ -22,7 +22,8 @@ class LocalStorage(BaseFileStorage):
     @classmethod
     def from_config(cls, config: Config) -> "LocalStorage":
         return LocalStorage(
-            root_dir=config.file_storage.local.root_dir or config.workspace.work_root
+            root_dir=config.file_storage.local.root_dir or config.workspace.work_root,
+            keymap=config.file_storage.map_rule
         )
 
     def model_post_init(self, context: Any, /) -> None:
