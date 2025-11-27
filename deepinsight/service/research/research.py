@@ -15,7 +15,7 @@ import uuid
 import os
 import io
 import asyncio
-from typing import AsyncGenerator, Any, Dict, Set, Tuple
+from typing import AsyncGenerator, Any, Dict, Optional, Set, Tuple
 import json
 import base64
 import logging
@@ -222,7 +222,7 @@ class ResearchService:
         - ragflow_authorization: Optional authorization token for RAG services
         - scene_type: 从请求中读取，选择对应的 graph
         """
-        graph_config = self._build_graph_config(request)
+        graph_config = self._build_graph_config(request, ragflow_authorization)
         adapter = StreamEventAdapter(
             text_stream_block_nodes=self._text_block_nodes or None,
             tool_call_stream_block_nodes=self._tool_call_block_nodes or None,

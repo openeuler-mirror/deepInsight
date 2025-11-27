@@ -58,7 +58,7 @@ class Passage(BaseModel):
 
     chunk_id: str
     text: str
-    score: float
+    score: Optional[float]
     meta: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 

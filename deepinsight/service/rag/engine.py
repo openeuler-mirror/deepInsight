@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import List, Optional
 import copy
+import logging
 
 from langchain_core.documents import Document as LCDocument
 
@@ -117,7 +118,6 @@ class RAGEngine:
                         passages = await self.retrieve(working_dir, question, top_k)
                         all_passages.extend(passages)
                     except Exception as e:
-                        import logging
                         logging.warning(f"Failed to retrieve from KB {kb_id} (path: {working_dir}): {e}")
 
             # Sort combined results by score (descending) and take top_k
@@ -151,22 +151,41 @@ class RAGEngine:
             """
 
             import asyncio
+            import warnings
+            
             try:
                 loop = asyncio.get_event_loop()
             except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+                loop = None
             
-            if loop.is_running():
-                # If we are in a running loop (e.g. nested), we might need nest_asyncio or similar,
-                # but for now assuming standard usage or thread pool where loop might not be running.
-                # Actually, if loop is running, asyncio.run will fail.
-                # For thread pool usage (like in best_paper_analysis), there is no running loop in that thread usually.
+            if loop and loop.is_running():
+                # If we are in a running loop, use a thread pool to run asyncio.run in a separate thread
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor() as pool:
-                    return pool.submit(asyncio.run, retrieve_func(question)).result()
+                    # Use asyncio.run which properly handles cleanup
+                    future = pool.submit(asyncio.run, retrieve_func(question))
+                    return future.result()
             else:
-                return loop.run_until_complete(retrieve_func(question))
+                # Create a new event loop for this synchronous call
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    result = new_loop.run_until_complete(retrieve_func(question))
+                    # Give pending tasks a chance to complete before closing the loop
+                    # This prevents "Event loop is closed" errors from httpx cleanup
+                    pending = asyncio.all_tasks(new_loop)
+                    if pending:
+                        new_loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                    return result
+                finally:
+                    try:
+                        # Properly shutdown async generators
+                        new_loop.run_until_complete(new_loop.shutdown_asyncgens())
+                        # Close the loop
+                        new_loop.close()
+                    except Exception:
+                        # Suppress any errors during cleanup
+                        pass
 
         def _create_tool_description(f):
             tool = make_tool(f, parse_docstring=True)

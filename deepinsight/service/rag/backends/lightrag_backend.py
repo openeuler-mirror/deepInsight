@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
-from lightrag import LightRAG
+from lightrag import LightRAG, QueryParam
 from lightrag.llm.hf import hf_embed
 from lightrag.kg.shared_storage import initialize_pipeline_status
 from lightrag.utils import EmbeddingFunc
@@ -82,21 +82,24 @@ class LightRAGBackend(BaseRAGBackend):
 
     async def retrieve(self, working_dir: str, query: str, top_k: int) -> List[Passage]:
         rag = await self._get_or_create_rag(working_dir)
-        if hasattr(rag, "asearch"):
-            result = await rag.asearch(query, top_k=top_k)
-        elif hasattr(rag, "aquery"):
-            result = await rag.aquery(query, top_k=top_k)
-        elif hasattr(rag, "search"):
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, lambda: rag.search(query, top_k=top_k))
-        else:
-            result = []
-
+        result = await rag.aquery_data(
+            query=query,
+            param=QueryParam(
+                mode="hybrid",
+                top_k=top_k,
+            )
+        )
         passages: List[Passage] = []
-        if isinstance(result, list):
-            for i, item in enumerate(result):
-                passages.append(_to_passage(i, item))
-        return passages[:top_k]
+        if result["status"] != "success":
+            raise Exception(f"light retrieve {result['status']} because {result['message']}")
+        for chunk in result["data"]["chunks"]:
+            passages.append(
+                Passage(
+                    chunk_id=chunk["chunk_id"],
+                    text=chunk["content"],
+                )
+            )
+        return passages
 
     async def _get_or_create_rag(self, working_dir: str) -> LightRAG:
         if not working_dir:
@@ -166,19 +169,6 @@ class LightRAGBackend(BaseRAGBackend):
             return DocProcessStatus.failed
         except Exception:
             return DocProcessStatus.failed
-
-
-def _to_passage(index: int, item: Any) -> Passage:
-    if isinstance(item, str):
-        return Passage(chunk_id=f"res:{index}", text=item, score=0.0, meta={})
-    if isinstance(item, dict):
-        text = item.get("text") or item.get("content") or str(item)
-        score = float(item.get("score", 0.0))
-        meta = {k: v for k, v in item.items() if k not in {"text", "content", "score"}}
-        return Passage(chunk_id=f"res:{index}", text=text, score=score, meta=meta)
-    text = getattr(item, "text", None) or getattr(item, "content", None) or str(item)
-    score = float(getattr(item, "score", 0.0))
-    return Passage(chunk_id=f"res:{index}", text=text, score=score, meta={})
 
 
 def _estimate_chunks(text: str) -> int:

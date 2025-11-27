@@ -85,8 +85,7 @@ class ConferenceService:
                     data.topics = meta.topics
             except self.ConferenceQueryException as e:
                 # Surface query-related errors (e.g., missing API key) to client
-                # raise e
-                pass
+                raise e
             except Exception:
                 # Best-effort enrichment; continue creation if query fails
                 raise
