@@ -68,7 +68,7 @@ class LocalStorage(BaseFileStorage):
         with self._open_file(StorageOp.CREATE, bucket, filename) as f:
             f.write(content)
 
-    async def file_delete(self, bucket: str, filename: str, allow_not_exists: bool = False) -> None:
+    async def file_delete(self, bucket: str, filename: str, allow_not_exists: bool = True) -> None:
         self._check_bucket_exists(StorageOp.DELETE, bucket, filename)
         path = self._path_of(StorageOp.GET, bucket, filename)
         try:

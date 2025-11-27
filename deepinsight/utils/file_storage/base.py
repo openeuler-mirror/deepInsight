@@ -67,6 +67,13 @@ class BaseFileStorage(ABC, BaseModel):
     - Store images for a document.
     - Store images for a report.
     """
+
+    def __aenter__(self):
+        return self
+
+    def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
     @classmethod
     @abstractmethod
     def from_config(cls: Type[_Self], config: "Config") -> _Self:
@@ -91,7 +98,7 @@ class BaseFileStorage(ABC, BaseModel):
         raise NotImplementedError("file_add")
 
     @abstractmethod
-    async def file_delete(self, bucket: str, filename: str, allow_not_exists: bool = False) -> None:
+    async def file_delete(self, bucket: str, filename: str, allow_not_exists: bool = True) -> None:
         raise NotImplementedError("file_delete")
 
     @abstractmethod
@@ -99,11 +106,11 @@ class BaseFileStorage(ABC, BaseModel):
         raise NotImplementedError("file_get")
 
     # utils begin
-    async def store_document_images(self, knowledge_base_id: int, document_id: str, images: dict[str, bytes]) -> None:
+    async def store_document_images(self, knowledge_base_id: str, document_id: str, images: dict[str, bytes]) -> None:
         await self.bucket_create(str(knowledge_base_id), exist_ok=True)
         if not images:
             return
-        bucket = str(knowledge_base_id)
+        bucket = knowledge_base_id
         upload_tasks = [
             self.file_add(bucket, f"{document_id}/{name}", content)
         for name, content in images.items()

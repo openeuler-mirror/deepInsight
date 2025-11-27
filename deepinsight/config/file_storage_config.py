@@ -70,8 +70,6 @@ class FileStorageConfig(_ConfigModel):
 
     @model_validator(mode="after")
     def _check_configs(self):
-        if self.type != StorageType.LOCAL:
-            raise NotImplementedError("Currently file storage only supports storage on local disk (type='local').")
         required_config = self._REQUIRED_FIELD_MAP[self.type]
         if getattr(self, required_config) is None:
             raise ValueError(f"For storage type '{self.type}', config field '{required_config}' is required.")

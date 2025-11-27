@@ -25,6 +25,9 @@ def get_storage_impl(config: Config = None) -> BaseFileStorage:
     if config.file_storage.type == StorageType.LOCAL:
         from deepinsight.utils.file_storage.local import LocalStorage
         _current = LocalStorage.from_config(config)
+    elif config.file_storage.type == StorageType.S3_OBS:
+        from deepinsight.utils.file_storage.s3_compatible import S3CompatibleObsClient
+        _current = S3CompatibleObsClient.from_config(config)
     else:
         raise NotImplementedError(f"Unsupported storage type {config.file_storage.type}")
     return _current

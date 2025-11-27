@@ -57,9 +57,9 @@ class TestStorageLocal(TestCase):
             await self._assert_raises(storage.file_get(fake_bucket, file2),
                                       StorageOp.GET, fake_bucket, file2, r.BUCKET_NOT_FOUND)
 
-            await storage.file_delete(bucket, file2)
+            await storage.file_delete(bucket, file2, allow_not_exists=False)
             await storage.file_delete(bucket, file2, allow_not_exists=True)
-            await self._assert_raises(storage.file_delete(bucket, file2),
+            await self._assert_raises(storage.file_delete(bucket, file2, allow_not_exists=False),
                                       StorageOp.DELETE, bucket, file2, r.FILE_NOT_FOUND)
             self.assertEqual([file1], await storage.list_files(bucket))
 
@@ -77,3 +77,5 @@ class TestStorageLocal(TestCase):
             self.assertEqual(e.bucket, bucket)
             self.assertEqual(e.filename, file)
             self.assertEqual(e.reason, reason)
+        else:
+            self.fail("Except raises")
