@@ -1,0 +1,806 @@
+import asyncio
+from enum import Enum
+from datetime import datetime
+import json
+import logging
+import os
+from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict, Union, get_args, get_origin
+from pydantic import BaseModel, Field
+
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableConfig
+from langchain.agents import create_agent
+from langchain.agents.structured_output import ToolStrategy
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.config import get_stream_writer
+from langgraph.constants import END
+from langgraph.graph import StateGraph
+
+from deepinsight.core.tools.file_download import download_file_from_url
+from deepinsight.core.utils.research_utils import parse_research_config
+
+DEFAULT_LIST_STYLE_DESC = "\n当输出多条内容时，采用markdown列表格式，先给出小标题，再给出内容，示例如下\n  * **你的小标题**: 具体内容\n* **小标题2**: 具体内容\n"
+CONFERENCE_OVERVIEW_EXAMPLE = "以ICML为例: ICML以推动机器学习理论与应用的前沿研究为核心目标，涵盖监督学习、无监督学习、强化学习、生成式AI、多模态学习等基础领域，以及医疗、自动驾驶、气候变化等跨学科应用。作为机器学习领域的 旗舰会议，其论文质量和学术影响力被广泛认可，与NeurIPS、ICLR并称为全球三大机器学习顶会。"
+
+
+class PPTGraphNodeType(str, Enum):
+    CHECK_EXISTING_PPT = "check_existing_ppt"
+    LOAD_CONFERENCE_SECTIONS = "load_conference_sections"
+    ASSEMBLE_PPT_JSON = "assemble_ppt_json"
+    SAVE_PPT_JSON = "save_ppt_json"
+
+    GENERATE_OVERVIEW_PAGE = "generate_overview_page"
+    GENERATE_SUBMISSION_PAGE = "generate_submission_page"
+    GENERATE_KEYNOTES_PAGE = "generate_keynotes_page"
+    GENERATE_TOPIC_CONTENT_PAGE = "generate_topic_content_page"
+    GENERATE_TOPIC_DETAILS_PAGE = "generate_topic_details_page"
+    GENERATE_BEST_PAPERS_PAGE = "generate_best_papers_page"
+    GENERATE_SUMMARY_PAGE = "generate_summary_page"
+
+    def __str__(self):
+        return self.value
+
+
+class PPTState(TypedDict):
+    ppt_json_file_path: Optional[str]
+    ppt_generate_file_name: Optional[str]
+    ppt_json: Optional[List[Dict[str, Any]]]
+    sections: Optional[Dict[str, Any]]
+    overview_json: Optional[Any]
+    submission_json: Optional[List[Any]]
+    keynote_json: Optional[Any]
+    topic_content_json: Optional[Any]
+    topic_details_json: Optional[List[Any]]
+    best_papers_json: Optional[List[Any]]
+    summary_json: Optional[Any]
+
+
+# ========== 通用结构 ==========
+class ImageContent(BaseModel):
+    """图片内容描述"""
+    type: Optional[str] = Field("image", description="类型为 image")
+    path: Optional[str] = Field(None,
+                                description="图片路径，必须为本地文件路径，如果是远端地址请先使用文件下载工具下载到本地文件系统，下载时候文件名按照图片描述起名，避免用JSON里面对应的key，因为可能会重复")
+
+
+class TableContent(BaseModel):
+    """表格内容描述"""
+    type: Optional[str] = Field("table", description="类型为 table")
+    path: Optional[str] = Field(None, description="表格文件路径，和content二选一即可")
+    content: Optional[str] = Field(None,
+                                   description="表格csv实际内容，和path二选一即可，请注意，csv某个单元格如果有逗号等符合，整个单元格需要用引号")
+
+
+class BasePage(BaseModel):
+    """所有 PPT 页面基类"""
+    type: str
+
+
+# ========== 各类型页面定义 ==========
+
+class CoverPageContent(BaseModel):
+    conference_name: Optional[str] = Field(None, description="会议名称")
+    date: Optional[str] = Field(None, description="会议日期，格式如 2023年10月15-18日")
+
+
+class CoverPage(BasePage):
+    type: str = "cover_page"
+    content: CoverPageContent
+
+
+class ContentPage(BasePage):
+    type: str = "content_page"
+    skip_fill: bool = True
+
+
+# --- Conference Overview ---
+class ConfOverviewPageContent(BaseModel):
+    conf_name: Optional[str] = Field(None, description="会议名称，长度10以内")
+    conf_info: Optional[str] = Field(None, description="会议基本信息概述，长度200-300,"+CONFERENCE_OVERVIEW_EXAMPLE)
+    organizer_level: Optional[str] = Field(None, description="会议级别，长度128以内")
+    conf_topics: Optional[str] = Field(None, description="会议主题介绍，长度128以内")
+    conf_loc: Optional[str] = Field(None, description="会议地点，长度50以内")
+    conf_date: Optional[str] = Field(None, description="会议时间，长度50以内")
+    conf_sponsor: Optional[str] = Field(None, description="会议主办方，长度80以内")
+    conf_chair: Optional[str] = Field(None, description="会议主席，长度80以内")
+    conf_committee: Optional[str] = Field(None, description="会议委员会，长度80以内")
+    conf_institution: Optional[str] = Field(None, description="会议主要机构，长度80以内")
+    submit_papers: Optional[str] = Field(None, description="会议投稿情况概述，长度80以内")
+    total_trend: Optional[str] = Field(None, description="会议论文总体趋势分析描述，使用markdown列表写法列出多条，长度300-400"+DEFAULT_LIST_STYLE_DESC)
+
+
+class ConfOverviewPage(BasePage):
+    type: str = "conf_overview_page"
+    content: ConfOverviewPageContent
+
+
+# --- Research Fields ---
+class ResearchFieldsPageContent(BaseModel):
+    research_trend: Optional[str] = Field(None,
+                                          description="论文主题领域趋势分析描述，使用markdown列表写法列出多条，长度400-600" + DEFAULT_LIST_STYLE_DESC)
+    research_fields_png: Optional[ImageContent] = Field(None,
+                                                        description="论文Top主题领域趋势分析图片")
+
+class ResearchFieldsPage(BasePage):
+    type: str = "research_fields_page"
+    content: ResearchFieldsPageContent
+
+
+# --- Country Analysis ---
+class CountryAnalysisPageContent(BaseModel):
+    country_trend: Optional[str] = Field(None,
+                                         description="国家/地区趋势分析描述，使用markdown列表写法列出多条，长度400-600" + DEFAULT_LIST_STYLE_DESC)
+    country_png: Optional[ImageContent] = Field(None, description="国家/地区趋势分析图片")
+
+
+class CountryAnalysisPage(BasePage):
+    type: str = "country_analysis_page"
+    content: CountryAnalysisPageContent
+
+
+# --- Institution Analysis ---
+class InstitutionAnalysisPageContent(BaseModel):
+    institution_trend: Optional[str] = Field(None,
+                                             description="机构趋势分析描述，使用markdown列表写法列出多条，长度400-600" + DEFAULT_LIST_STYLE_DESC)
+    institution_png: Optional[ImageContent] = Field(None, description="机构趋势分析图片")
+
+
+class InstitutionAnalysisPage(BasePage):
+    type: str = "institution_analysis_page"
+    content: InstitutionAnalysisPageContent
+
+
+# --- First Author ---
+class FirstAuthorPageContent(BaseModel):
+    first_author_statistic_csv: Optional[TableContent] = Field(None,
+                                                               description="第一作者统计表格内容")
+
+
+class FirstAuthorPage(BasePage):
+    type: str = "first_author_page"
+    content: FirstAuthorPageContent
+
+
+# --- Coauthor ---
+class CoauthorPageContent(BaseModel):
+    coauthor_statistic_csv: Optional[TableContent] = Field(None, description="合作作者统计表格内容")
+
+
+class CoauthorPage(BasePage):
+    type: str = "coauthor_page"
+    content: CoauthorPageContent
+
+
+# --- Submission Page ---
+class SubmissionPageContent(BaseModel):
+    research_fields: Optional[ResearchFieldsPageContent] = Field(None, description="论文主题领域分布")
+    country_analysis: Optional[CountryAnalysisPageContent] = Field(None, description="论文投稿国家/地区分布分析")
+    institution_analysis: Optional[InstitutionAnalysisPageContent] = Field(None, description="论文投稿机构分布分析")
+    first_author: Optional[FirstAuthorPageContent] = Field(None, description="论文第一作者分析")
+    coauthor: Optional[CoauthorPageContent] = Field(None, description="论文合作作者分析")
+
+
+# --- Keynote Page ---
+class KeynotePageContent(BaseModel):
+    keynote_title: Optional[str] = Field(None, description="主旨演讲标题")
+    speaker: Optional[str] = Field(None, description="主旨演讲者，长度50-100")
+    keynote_abstract: Optional[str] = Field(None, description="主旨演讲摘要，长度150-300")
+    keynote_background: Optional[str] = Field(None, description="主旨演讲why，长度150-300，优先从源数据对应的why里面获取")
+    keynote_objective: Optional[str] = Field(None, description="主旨演讲what，长度150-300，优先从源数据对应的what里面获取")
+    keynote_method: Optional[str] = Field(None, description="主旨演讲how，长度150-300，优先从源数据对应的how里面获取")
+    keynote_inspiration: Optional[str] = Field(None, description="主旨演讲对业务启示，长度150-300")
+    keynote_summary: Optional[str] = Field(None, description="主旨演讲总结，长度128-240")
+    keynote_picture: Optional[ImageContent] = Field(None, description="演讲嘉宾照片，如果源数据里面有，则必须填写")
+
+class KeynotePage(BasePage):
+    type: str = "keynote_page"
+    content: KeynotePageContent
+
+
+class KeynotePageContentList(BaseModel):
+    items: Optional[List[KeynotePageContent]]
+
+
+# --- Topic Content Page ---
+class TopicContentPageContent(BaseModel):
+    topic_content_csv: Optional[TableContent] = Field(None,
+                                                      description=f"""
+会议技术专题，表头包含专题方向和相关论文及摘要，内容见技术方向总览相关部分，长度600-800，
+csv的每个单元格都必须用双引号包裹（包括数字）,单元格里面不同论文及其摘要需要使用换行符分开，
+单个专题对应论文及其摘要示例：
+
+- 论文1：论文1摘要
+- 论文2：论文2摘要
+""")
+
+
+class TopicContentPage(BasePage):
+    type: str = "topic_content_page"
+    content: TopicContentPageContent
+
+
+# --- Topic Detail Page ---
+class TopicDetailPageContent(BaseModel):
+    topic_title: Optional[str] = Field(None, description="会议主题标题")
+    topic_overview: Optional[str] = Field(None, description="会议主题概述，长度140-280")
+    topic_reason: Optional[str] = Field(None, description="会议主题选择原因，长度500-800，不要包含引导性开头的句子")
+    topic_summary: Optional[str] = Field(None, description="会议主题总结，长度200-400")
+    topic_method_innovation: Optional[str] = Field(None, description=f"会议主题主要技术路径与创新点，长度500-1000，不要包含引导性开头的句子，使用markdown列表写法列出多条，每条用-开头，示例：* **- 条目1**：条目1描述 \n* **- 条目2**：条目2描述")
+    topic_inspiration: Optional[str] = Field(None, description="会议主题对业务启示，长度300-600，不要包含引导性开头的句子")
+
+
+class TopicDetailPage(BasePage):
+    type: str = "topic_detail_page"
+    content: TopicDetailPageContent
+
+
+class TopicDetailPageContentList(BaseModel):
+    items: Optional[List[TopicDetailPageContent]]
+
+
+# --- Valuable Paper Page ---
+class ValuablePaperPageContent(BaseModel):
+    paper_title: Optional[str] = Field(None, description="优秀论文标题")
+    paper_background: Optional[str] = Field(None, description="优秀论文背景介绍，长度140-280")
+    paper_challenges: Optional[str] = Field(None, description="优秀论文面临的挑战，长度250-500")
+    paper_tech_resource: Optional[str] = Field(None, description="优秀论文技术资源，长度140-280")
+    paper_key_tech: Optional[str] = Field(None, description="优秀论文关键技术，长度300-600")
+    paper_result: Optional[str] = Field(None, description="优秀论文实验结果，长度250-500")
+    paper_summary: Optional[str] = Field(None, description="优秀论文总结，长度150-300")
+    key_tech_png: Optional[ImageContent] = Field(None, description="关键技术图片1")
+    exp_result_png: Optional[ImageContent] = Field(None, description="实验结果图片1")
+
+
+class ValuablePaperPage(BasePage):
+    type: str = "valuable_paper_page"
+    content: ValuablePaperPageContent
+
+
+# --- Conference Summary Page ---
+class ConfSummaryPageContent(BaseModel):
+    key_trends: Optional[str] = Field(None, description="关键趋势总结，使用markdown列表写法列出多条，长度300-500")
+    suggestions: Optional[str] = Field(None, description="建议，使用markdown列表写法列出多条，长度300-500")
+
+
+class ConfSummaryPage(BasePage):
+    type: str = "conf_summary_page"
+    content: ConfSummaryPageContent
+
+
+async def check_existing_ppt(state: PPTState, config: RunnableConfig):
+    rc = parse_research_config(config)
+    current_thread_work_root = os.path.join(rc.work_root, "conference_report_result", rc.thread_id)
+    ppt_json_file_name = os.path.join(current_thread_work_root, "ppt_content.json")
+    ppt_file_name = os.path.join(current_thread_work_root, "result.pptx")
+    ppt_json = None
+    if os.path.exists(ppt_json_file_name):
+        with open(ppt_json_file_name, "r", encoding="utf-8") as f:
+            ppt_json = json.load(f)
+
+        cover_page = next((item for item in ppt_json if item.get("type") == "cover_page"), None)
+
+        if cover_page and "content" in cover_page:
+            content = cover_page["content"]
+            conference_name = content.get("conference_name", "")
+            now = datetime.now()
+            time_for_filename = now.strftime("%Y%m%d%H%M%S")
+            formatted_date = now.strftime("%Y年%m月%d日 %H点%M分")
+            content["DATE"] = formatted_date
+
+            ppt_file_name = os.path.join(
+                current_thread_work_root,
+                f"{conference_name} 洞察报告-{time_for_filename}.pptx"
+            )
+
+        with open(ppt_json_file_name, "w", encoding="utf-8") as f:
+            json.dump(ppt_json, f, ensure_ascii=False, indent=2)
+
+    return dict(
+        ppt_json=ppt_json,
+        ppt_generate_file_name=ppt_file_name,
+        ppt_json_file_path=ppt_json_file_name if ppt_json is not None else None,
+    )
+
+
+async def load_conference_sections(state: PPTState, config: RunnableConfig):
+    rc = parse_research_config(config)
+    current_thread_work_root = os.path.join(rc.work_root, "conference_report_result", rc.thread_id)
+    sections: Dict[str, str] = {}
+    for fname in [
+        "conference_overview.md",
+        "conference_submission.md",
+        "conference_keynotes.md",
+        "conference_topic.md",
+        "conference_summary.md",
+    ]:
+        path = os.path.join(current_thread_work_root, fname)
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                sections[fname] = f.read()
+        else:
+            sections[fname] = ""
+
+    bp_folder = os.path.join(current_thread_work_root, "conference_best_papers")
+    best_papers_texts = []
+    if os.path.isdir(bp_folder):
+        for fn in os.listdir(bp_folder):
+            if fn.endswith(".md"):
+                with open(os.path.join(bp_folder, fn), "r", encoding="utf-8") as f:
+                    best_papers_texts.append(f.read())
+    sections["conference_best_papers"] = best_papers_texts
+    return dict(
+        sections=sections
+    )
+
+
+def generate_json_template(model_cls: type) -> str:
+    """
+    将 Pydantic 模型类转为包含类型、描述、示例值的 JSON 模板。
+    ✅ 支持嵌套 BaseModel
+    ✅ 支持 alias
+    ✅ 支持 List[BaseModel] / Dict[str, BaseModel] 顶层输入
+    """
+
+    def type_name(field_type):
+        origin = get_origin(field_type)
+        if origin is Union:
+            args = [t for t in get_args(field_type) if t is not type(None)]
+            return f"Optional[{type_name(args[0])}]" if args else "Any"
+        if isinstance(field_type, type):
+            if issubclass(field_type, BaseModel):
+                return field_type.__name__
+            return field_type.__name__
+        if origin in (list, List):
+            args = get_args(field_type)
+            return f"List[{type_name(args[0])}]" if args else "List"
+        if origin in (dict, Dict):
+            args = get_args(field_type)
+            return f"Dict[{', '.join(type_name(a) for a in args)}]" if args else "Dict"
+        return str(field_type)
+
+    def default_value_for_type(field_type):
+        origin = get_origin(field_type)
+        if origin is Union:
+            args = [t for t in get_args(field_type) if t is not type(None)]
+            return default_value_for_type(args[0]) if args else None
+        if isinstance(field_type, type) and issubclass(field_type, BaseModel):
+            return build_template(field_type)
+        if origin in (list, List):
+            args = get_args(field_type)
+            if args:
+                inner_type = args[0]
+                if isinstance(inner_type, type) and issubclass(inner_type, BaseModel):
+                    return [build_template(inner_type)]
+                else:
+                    return [default_value_for_type(inner_type)]
+            return []
+        if origin in (dict, Dict):
+            args = get_args(field_type)
+            if len(args) == 2:
+                key_type, val_type = args
+                if isinstance(val_type, type) and issubclass(val_type, BaseModel):
+                    return {"key": build_template(val_type)}
+                else:
+                    return {"key": default_value_for_type(val_type)}
+            return {}
+        if field_type == str:
+            return ""
+        if field_type in [int, float]:
+            return 0
+        if field_type == bool:
+            return False
+        return None
+
+    def build_template(model_cls):
+        """递归构建包含类型和描述的模板"""
+        template = {}
+        for field_name, field_info in model_cls.model_fields.items():
+            key_name = field_info.alias or field_name
+            field_type = field_info.annotation
+            field_description = field_info.description or ""
+            field_value = {
+                "type": type_name(field_type),
+                "description": field_description,
+                "example": default_value_for_type(field_type)
+            }
+            template[key_name] = field_value
+        return template
+
+    # ✅ 顶层类型修正逻辑
+    origin = get_origin(model_cls)
+    if origin in (list, List):
+        args = get_args(model_cls)
+        if args and isinstance(args[0], type) and issubclass(args[0], BaseModel):
+            template = [build_template(args[0])]
+        else:
+            template = [default_value_for_type(args[0]) if args else None]
+    elif origin in (dict, Dict):
+        args = get_args(model_cls)
+        if len(args) == 2 and isinstance(args[1], type) and issubclass(args[1], BaseModel):
+            template = {"key": build_template(args[1])}
+        else:
+            template = {"key": default_value_for_type(args[1]) if len(args) == 2 else None}
+    elif isinstance(model_cls, type) and issubclass(model_cls, BaseModel):
+        template = build_template(model_cls)
+    else:
+        raise TypeError(f"Unsupported type for generate_json_template: {model_cls}")
+
+    return json.dumps(template, indent=2, ensure_ascii=False)
+
+
+async def generate_overview_page(state: PPTState, config: RunnableConfig):
+    md_content = state["sections"].get("conference_overview.md", "")
+    if not md_content:
+        logging.warning(f"Overview page is empty")
+        return
+    rc = parse_research_config(config)
+    prompt = rc.prompt_manager.get_prompt("default", rc.prompt_group).format(
+        response_format=generate_json_template(ConfOverviewPageContent),
+    )
+    llm = rc.default_model
+    agent = create_agent(
+        model=llm,
+        system_prompt=prompt,
+        tools=[download_file_from_url],
+        response_format=ToolStrategy(ConfOverviewPageContent)
+    )
+    response = await agent.with_retry().ainvoke(
+        input=dict(
+            messages=[HumanMessage(content=state["sections"].get("conference_overview.md", ""))]
+        )
+    )
+    structured_response = response.get("structured_response")
+    if not structured_response:
+        logging.warning(f"LLM generate overriew response is empty")
+        return
+    return dict(
+        overview_json=ConfOverviewPage(
+            content=structured_response
+        )
+    )
+
+
+
+async def generate_submission_page(state: PPTState, config: RunnableConfig):
+    md_content = state["sections"].get("conference_submission.md", "")
+    if not md_content:
+        logging.warning(f"Submission page is empty")
+        return
+    rc = parse_research_config(config)
+    prompt = rc.prompt_manager.get_prompt("default", rc.prompt_group).format(
+        response_format=generate_json_template(SubmissionPageContent),
+    )
+    llm = rc.default_model
+    agent = create_agent(
+        model=llm,
+        system_prompt=prompt,
+        tools=[download_file_from_url],
+        response_format=ToolStrategy(SubmissionPageContent) 
+    )
+    response = await agent.with_retry().ainvoke(
+        input=dict(
+            messages=[HumanMessage(content=state["sections"].get("conference_submission.md", ""))]
+        )
+    )
+    structured_response: Optional[SubmissionPageContent] = response.get("structured_response")
+    if not structured_response:
+        logging.warning(f"LLM generate submission response is empty")
+        return
+    return dict(
+        submission_json=[
+            ResearchFieldsPage(
+                content=structured_response.research_fields
+            ),
+            CountryAnalysisPage(
+                content=structured_response.country_analysis
+            ),
+            InstitutionAnalysisPage(
+                content=structured_response.institution_analysis
+            ),
+            FirstAuthorPage(
+                content=structured_response.first_author
+            ),
+            CoauthorPage(
+                content=structured_response.coauthor
+            ),
+        ]
+    )
+
+
+async def generate_keynotes_page(state: PPTState, config: RunnableConfig):
+    md_content = state["sections"].get("conference_keynotes.md", "")
+    if not md_content:
+        logging.warning(f"Keynote page is empty")
+        return
+    rc = parse_research_config(config)
+    prompt = rc.prompt_manager.get_prompt("default", rc.prompt_group).format(
+        response_format=generate_json_template(KeynotePageContentList),
+    )
+    llm = rc.default_model
+    agent = create_agent(
+        model=llm,
+        system_prompt=prompt,   
+        tools=[download_file_from_url],
+        response_format=ToolStrategy(KeynotePageContentList)
+    )
+    response = await agent.with_retry().ainvoke(
+        input=dict(
+            messages=[HumanMessage(content=state["sections"].get("conference_keynotes.md", ""))]
+        )
+    )
+    structured_response: Optional[KeynotePageContentList] = response.get("structured_response")
+    if not structured_response or not structured_response.items:
+        logging.warning(f"LLM generate keynote response item is empty")
+        return
+    return dict(
+        keynote_json=[
+            KeynotePage(
+                content=each
+            ) for each in structured_response.items
+        ]
+    )
+
+
+async def generate_topic_content_page(state: PPTState, config: RunnableConfig):
+    md_content = state["sections"].get("conference_topic.md", "")
+    if not md_content:
+        logging.warning(f"Topic content page is empty")
+        return
+    rc = parse_research_config(config)
+    prompt = rc.prompt_manager.get_prompt("default", rc.prompt_group).format(
+        response_format=generate_json_template(TopicContentPageContent),
+    )
+    llm = rc.default_model
+    agent = create_agent(
+        model=llm,
+        system_prompt=prompt,   
+        tools=[download_file_from_url],
+        response_format=ToolStrategy(TopicContentPageContent)
+    )
+    response = await agent.with_retry().ainvoke(
+        input=dict(
+            messages=[HumanMessage(content=state["sections"].get("conference_topic.md", ""))]
+        )
+    )
+    structured_response: Optional[TopicContentPageContent] = response.get("structured_response")
+    if not structured_response:
+        logging.warning(f"LLM generate topic content response is empty")
+        return
+    return dict(
+        topic_content_json=TopicContentPage(
+            content=structured_response
+        )
+    )
+
+
+async def generate_topic_details_page(state: PPTState, config: RunnableConfig):
+    md_content = state["sections"].get("conference_topic.md", "")
+    if not md_content:
+        logging.warning(f"Topic details page is empty")
+        return
+    rc = parse_research_config(config)
+    prompt = rc.prompt_manager.get_prompt("default", rc.prompt_group).format(
+        response_format=generate_json_template(TopicDetailPageContentList),
+    )
+    llm = rc.default_model
+    agent = create_agent(
+        model=llm,
+        system_prompt=prompt,   
+        tools=[download_file_from_url],
+        response_format=ToolStrategy(TopicDetailPageContentList)
+    )
+    response = await agent.with_retry().ainvoke(
+        input=dict(
+            messages=[HumanMessage(content=state["sections"].get("conference_topic.md", ""))]
+        )
+    )
+    structured_response: Optional[TopicDetailPageContentList] = response.get("structured_response")
+    if not structured_response:
+        logging.warning(f"LLM generate topic details response is empty")
+        return
+    return dict(
+        topic_details_json=[
+            TopicDetailPage(
+                content=each
+            ) for each in structured_response.items
+        ]
+    )
+
+
+async def generate_best_papers_page(state: PPTState, config: RunnableConfig):
+    best_papers = state["sections"].get("conference_best_papers", [])
+    if not best_papers:
+        logging.warning(f"Best papers is empty")
+        return dict(
+            best_papers_json=[]
+        )
+    rc = parse_research_config(config)
+    prompt = rc.prompt_manager.get_prompt("default", rc.prompt_group).format(
+        response_format=generate_json_template(ValuablePaperPageContent),
+    )
+    llm = rc.default_model
+
+    async def process_one_paper(paper_text: str):
+        agent = create_agent(
+            model=llm,
+            system_prompt=prompt,   
+            tools=[download_file_from_url],
+            response_format=ToolStrategy(ValuablePaperPageContent)  
+        )
+        messages = [HumanMessage(content=paper_text)]
+
+        try:
+            response = await agent.with_retry().ainvoke(input={"messages": messages})
+            structured = response.get("structured_response")
+            if not structured:
+                logging.warning(f"LLM generate best paper response is empty")
+                return None
+
+            return ValuablePaperPage(content=structured)
+        except Exception as e:
+            logging.error(f"[generate_best_papers_page] Error processing paper: {e}")
+            return None
+
+    tasks = [process_one_paper(bp) for bp in best_papers]
+    results: List[ValuablePaperPage] = await asyncio.gather(*tasks, return_exceptions=False)
+    results = [r for r in results if r is not None]
+    return dict(
+        best_papers_json=results
+    )
+
+
+async def generate_summary_page(state: PPTState, config: RunnableConfig):
+    md_content = state["sections"].get("conference_summary.md", "")
+    if not md_content:
+        logging.warning(f"Summary page is empty")
+        return
+    rc = parse_research_config(config)
+    prompt = rc.prompt_manager.get_prompt("default", rc.prompt_group).format(
+        response_format=generate_json_template(ConfSummaryPageContent),
+    )
+    llm = rc.default_model
+    agent = create_agent(
+        model=llm,
+        system_prompt=prompt,   
+        tools=[download_file_from_url],
+        response_format=ToolStrategy(ConfSummaryPageContent)
+    )
+    response = await agent.with_retry().ainvoke(
+        input=dict(
+            messages=[HumanMessage(content=state["sections"].get("conference_summary.md", ""))]
+        )
+    )
+    structured_response = response.get("structured_response")
+    if not structured_response:
+        logging.warning(f"LLM generate Summary response is empty")
+        return
+    return dict(
+        summary_json=ConfSummaryPage(
+            content=structured_response
+        )
+    )
+
+
+async def assemble_ppt_json(state: PPTState, config: RunnableConfig):
+    if state["ppt_json"] is not None:
+        return state
+    # 先 cover_page
+    cover = {
+        "type": "cover_page",
+        "content": {
+            "conference_name": "",
+            "date": ""
+        }
+    }
+
+    # 获取当前时间
+    now = datetime.now()
+    formatted_date = now.strftime("%Y年%m月%d日 %H点%M分")
+    
+    ov: ConfOverviewPage = state.get("overview_json")
+    if ov:
+        cover["content"]["conference_name"] = ov.content.conf_name
+        cover["content"]["date"] = formatted_date
+    pages: List[Dict[str, Any]] = []
+    pages.append(cover)
+    # skip_fill page
+    pages.append({"type": "content_page", "skip_fill": True})
+    # 接着 overview页面
+    if state.get("overview_json") is not None:
+        pages.append(state["overview_json"].model_dump(by_alias=True))
+    # submission / total analysis
+    if state.get("submission_json") is not None:
+        for each in state["submission_json"]:
+            pages.append(each.model_dump(by_alias=True))
+    # keynotes
+    if state.get("keynote_json") is not None:
+        for each in state["keynote_json"]:
+            pages.append(each.model_dump(by_alias=True))
+    # topic content
+    if state.get("topic_content_json") is not None:
+        pages.append(state["topic_content_json"].model_dump(by_alias=True))
+    # topic details
+    for t in state.get("topic_details_json", []):
+        pages.append(t.model_dump(by_alias=True))
+    # best papers
+    for bp in state.get("best_papers_json", []):
+        pages.append(bp.model_dump(by_alias=True))
+    # summary page
+    if state.get("summary_json") is not None:
+        pages.append(state["summary_json"].model_dump(by_alias=True))
+    state["ppt_json"] = pages
+
+    time_for_filename = now.strftime("%Y%m%d%H%M%S")
+
+    rc = parse_research_config(config)
+    current_thread_work_root = os.path.join(rc.work_root, "conference_report_result", rc.thread_id)
+    ppt_generate_file_name = os.path.join(
+        current_thread_work_root,
+        f"{ov.content.conf_name if ov else ''} 洞察报告-{time_for_filename}.pptx"
+    )
+    state["ppt_generate_file_name"] = ppt_generate_file_name
+    return state
+
+
+async def save_ppt_json(state: PPTState, config: RunnableConfig):
+    rc = parse_research_config(config)
+    current_thread_work_root = os.path.join(rc.work_root, "conference_report_result", rc.thread_id)
+    os.makedirs(current_thread_work_root, exist_ok=True)
+    path = os.path.join(current_thread_work_root, "ppt_content.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state["ppt_json"], f, ensure_ascii=False, indent=2)
+    return dict(
+        ppt_json_file_path=path,
+    )
+
+
+# 构建 graph
+builder = StateGraph(PPTState)
+
+builder.add_node(PPTGraphNodeType.CHECK_EXISTING_PPT, check_existing_ppt)
+builder.add_node(PPTGraphNodeType.LOAD_CONFERENCE_SECTIONS, load_conference_sections)
+builder.add_node(PPTGraphNodeType.GENERATE_OVERVIEW_PAGE, generate_overview_page)
+builder.add_node(PPTGraphNodeType.GENERATE_SUBMISSION_PAGE, generate_submission_page)
+builder.add_node(PPTGraphNodeType.GENERATE_KEYNOTES_PAGE, generate_keynotes_page)
+builder.add_node(PPTGraphNodeType.GENERATE_TOPIC_CONTENT_PAGE, generate_topic_content_page)
+builder.add_node(PPTGraphNodeType.GENERATE_TOPIC_DETAILS_PAGE, generate_topic_details_page)
+builder.add_node(PPTGraphNodeType.GENERATE_BEST_PAPERS_PAGE, generate_best_papers_page)
+builder.add_node(PPTGraphNodeType.GENERATE_SUMMARY_PAGE, generate_summary_page)
+builder.add_node(PPTGraphNodeType.ASSEMBLE_PPT_JSON, assemble_ppt_json)
+builder.add_node(PPTGraphNodeType.SAVE_PPT_JSON, save_ppt_json)
+
+# 添加边
+builder.set_entry_point(PPTGraphNodeType.CHECK_EXISTING_PPT)
+
+
+def after_check_exsiting_ppt(state: PPTState, config: RunnableConfig):
+    ppt_json = state.get("ppt_json")
+    if ppt_json is not None:
+        return END
+    else:
+        return PPTGraphNodeType.LOAD_CONFERENCE_SECTIONS
+
+
+builder.add_conditional_edges(PPTGraphNodeType.CHECK_EXISTING_PPT, after_check_exsiting_ppt)
+builder.add_edge(PPTGraphNodeType.LOAD_CONFERENCE_SECTIONS, PPTGraphNodeType.GENERATE_OVERVIEW_PAGE)
+builder.add_edge(PPTGraphNodeType.LOAD_CONFERENCE_SECTIONS, PPTGraphNodeType.GENERATE_SUBMISSION_PAGE)
+builder.add_edge(PPTGraphNodeType.LOAD_CONFERENCE_SECTIONS, PPTGraphNodeType.GENERATE_KEYNOTES_PAGE)
+builder.add_edge(PPTGraphNodeType.LOAD_CONFERENCE_SECTIONS, PPTGraphNodeType.GENERATE_TOPIC_CONTENT_PAGE)
+builder.add_edge(PPTGraphNodeType.LOAD_CONFERENCE_SECTIONS, PPTGraphNodeType.GENERATE_TOPIC_DETAILS_PAGE)
+builder.add_edge(PPTGraphNodeType.LOAD_CONFERENCE_SECTIONS, PPTGraphNodeType.GENERATE_BEST_PAPERS_PAGE)
+builder.add_edge(PPTGraphNodeType.LOAD_CONFERENCE_SECTIONS, PPTGraphNodeType.GENERATE_SUMMARY_PAGE)
+
+builder.add_edge(PPTGraphNodeType.GENERATE_OVERVIEW_PAGE, PPTGraphNodeType.ASSEMBLE_PPT_JSON)
+builder.add_edge(PPTGraphNodeType.GENERATE_SUBMISSION_PAGE, PPTGraphNodeType.ASSEMBLE_PPT_JSON)
+builder.add_edge(PPTGraphNodeType.GENERATE_KEYNOTES_PAGE, PPTGraphNodeType.ASSEMBLE_PPT_JSON)
+builder.add_edge(PPTGraphNodeType.GENERATE_TOPIC_CONTENT_PAGE, PPTGraphNodeType.ASSEMBLE_PPT_JSON)
+builder.add_edge(PPTGraphNodeType.GENERATE_TOPIC_DETAILS_PAGE, PPTGraphNodeType.ASSEMBLE_PPT_JSON)
+builder.add_edge(PPTGraphNodeType.GENERATE_BEST_PAPERS_PAGE, PPTGraphNodeType.ASSEMBLE_PPT_JSON)
+builder.add_edge(PPTGraphNodeType.GENERATE_SUMMARY_PAGE, PPTGraphNodeType.ASSEMBLE_PPT_JSON)
+
+builder.add_edge(PPTGraphNodeType.ASSEMBLE_PPT_JSON, PPTGraphNodeType.SAVE_PPT_JSON)
+builder.add_edge(PPTGraphNodeType.SAVE_PPT_JSON, END)
+
+graph = builder.compile()

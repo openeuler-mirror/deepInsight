@@ -1,7 +1,6 @@
 .idea
 output
 **/__pycache__
-mcp_client_config.json
 .env
 deepinsight.db
 deepinsight.db-journal
