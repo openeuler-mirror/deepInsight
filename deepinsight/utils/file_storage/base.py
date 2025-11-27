@@ -125,13 +125,28 @@ class BaseFileStorage(ABC, BaseModel):
         ]
         await asyncio.gather(*upload_tasks)
 
-    async def store_chart(self, name: str, content: bytes) -> None:
-        bucket = "charts"
+    async def chart_store(self, name: str, content: bytes) -> None:
+        bucket = self.keymap.report_image.bucket
+        obj_name = self.keymap.report_image.object.format(img_path=name)
         try:
-            await self.file_add(bucket, name, content)
+            await self.file_add(bucket, obj_name, content)
             return
         except StorageError as e:
             if e.reason != e.Reason.BUCKET_NOT_FOUND:
                 raise
         await self.bucket_create(bucket, exist_ok=True)
-        await self.file_add(bucket, name, content)
+        await self.file_add(bucket, obj_name, content)
+
+    async def knowledge_file_init_bucket(self, knowledge_base_id: str, exist_ok: bool = True):
+        bucket = self.keymap.kb_doc_binary.bucket.format(kb_id=knowledge_base_id)
+        await self.bucket_create(bucket, exist_ok=exist_ok)
+
+    async def knowledge_file_get(self, knowledge_base_id: str, doc_id: str, doc_name: str) -> bytes:
+        bucket = self.keymap.kb_doc_binary.bucket.format(kb_id=knowledge_base_id)
+        obj_name = self.keymap.kb_doc_binary.object.format(kb_id=knowledge_base_id, doc_id=doc_id, doc_name=doc_name)
+        return await self.file_get(bucket, obj_name)
+
+    async def knowledge_file_put(self, knowledge_base_id: str, doc_id: str, doc_name: str, binary: bytes) -> None:
+        bucket = self.keymap.kb_doc_binary.bucket.format(kb_id=knowledge_base_id)
+        obj_name = self.keymap.kb_doc_binary.object.format(kb_id=knowledge_base_id, doc_id=doc_id, doc_name=doc_name)
+        await self.file_add(bucket, obj_name, binary)
