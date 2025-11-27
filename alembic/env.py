@@ -1,3 +1,4 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -23,6 +24,19 @@ with open("config.yaml", "r", encoding="utf-8") as f:
     cfg = yaml.safe_load(f) or {}
 if (cfg.get("database") or {}).get("url"):
     config.set_main_option("sqlalchemy.url", (cfg.get("database") or {}).get("url"))
+
+def ensure_sqlite_dir(url: str):
+    """Automatically create parent directory for SQLite DB."""
+    if not url.startswith("sqlite:///"):
+        return  # only handle SQLite local file
+
+    path = url.replace("sqlite:///", "", 1)
+    directory = os.path.dirname(path)
+
+    if directory and not os.path.exists(directory):
+        os.makedirs(directory, exist_ok=True)
+
+ensure_sqlite_dir(config.get_main_option("sqlalchemy.url"))
 
 # add your model's MetaData object here
 # for 'autogenerate' support

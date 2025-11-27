@@ -31,7 +31,7 @@ cp mcp_config.example.json mcp_config.json
 
 2. 迁移数据库到最新版本
 ```commandline
-poetry run alembic upgrade head
+alembic upgrade head
 ```
 3. 命令行使用
 - 查看帮助：`deepinsight --help` 或 `python -m deepinsight.cli.main --help`

@@ -6,7 +6,7 @@ app:
   reload: false
 
 database:
-  url: sqlite:///deepinsight.db
+  url: sqlite:///data/deepinsight.db
 
 llms:
   - type: deepseek
