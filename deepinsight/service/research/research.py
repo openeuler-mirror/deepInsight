@@ -83,14 +83,9 @@ class ResearchService:
         allow_edit_report_outline = req.allow_edit_report_outline if req.allow_edit_report_outline is not None else bool(safe_get(deep_cfg, lambda o: o.allow_edit_report_outline, False))
         final_report_model = req.final_report_model if getattr(req, "final_report_model", None) is not None else safe_get(deep_cfg, lambda o: o.final_report_model, None)
  
-        # Determine prompt group for this scene
-        # Conference graph expects prompts under the 'conference_supervisor' group module
-        if req.scene_type == SceneType.CONFERENCE_RESEARCH:
-            prompt_group = "conference_supervisor"
-        else:
-            # Fallback group name; supervisor graph is only used for conference
-            prompt_group = req.scene_type
+        prompt_group = req.scene_type
 
+        # Load base stream_blocklist from config (common configuration)
         stream_filter_text: Dict[str, bool] = safe_get(
             deep_cfg, lambda o: safe_get(o.stream_blocklist, lambda s: s.text, None), None
         ) or {}
@@ -98,6 +93,21 @@ class ResearchService:
         stream_filter_tool_call: Dict[str, bool] = safe_get(
             deep_cfg, lambda o: safe_get(o.stream_blocklist, lambda s: s.tool_call, None), None
         ) or {}
+
+        # Extend blocklist for specific scene types (conference_qa and conference_research)
+        if req.scene_type in [SceneType.CONFERENCE_QA, SceneType.CONFERENCE_RESEARCH]:
+            # Additional filters for conference scenes (only new ones not in config.yaml)
+            conference_additional_filters = {
+                "researcher_tools": True,
+                "publish_result": True,
+                "tools": True,
+                "researcher": True,
+                "model": True,
+                "agent": True,
+            }
+            # Merge additional filters with base configuration
+            stream_filter_text.update(conference_additional_filters)
+            stream_filter_tool_call.update(conference_additional_filters)
 
         # Build block lists from filter config (truthy values mean "block/suppress")
         self._text_block_nodes = {k for k, v in stream_filter_text.items() if v}
