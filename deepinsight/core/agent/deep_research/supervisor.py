@@ -398,7 +398,7 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                         tools=[batch_analyze_keynotes],
                         system_prompt=system_prompt
                     )
-                    agent.invoke(
+                    await agent.ainvoke(
                         {"messages": [{"role": "user",
                                        "content": f"请分析以下keynotes，不要反问我任何内容，keynotes的集合如下：{final_report.content},"
                                                   f" 分析后结果保存到如下文件夹：{output_file}"}]},

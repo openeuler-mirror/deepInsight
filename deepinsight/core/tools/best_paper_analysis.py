@@ -10,7 +10,8 @@ from langchain_core.runnables import RunnableConfig
 from langchain_tavily import TavilySearch
 
 from deepinsight.core.tools.file_system import register_fs_tools, MemoryMCPFilesystem
-from deepinsight.core.utils.tool_utils import create_retrieval_tool
+from deepinsight.core.utils.tool_utils import create_retrieval_tool, CoerceToolOutput
+from deepinsight.core.utils.context_utils import SummarizationMiddleware
 from deepinsight.core.types.graph_config import RetrievalType
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.utils.db_schema_utils import get_db_models_source_markdown
@@ -70,11 +71,30 @@ async def analyze_single_paper(paper_info: str, output_dir: str, config: Runnabl
 
         from deepagents import create_deep_agent
         # Create the deep agent
-
+        summary_subagent_system_prompt = rc.prompt_manager.get_prompt(
+            name="review_paper_prompt",
+            group=rc.prompt_group,
+        ).format()
+        summary_subagent = {
+            "name": "summary-agent",
+            "description": "顶会优秀论文分析与点评助手，你需要获取全部论文相关资料（必须包括1、主题与作者信息（200字）2、问题与挑战（300字），3、关键技术及技术效果（600字）,请注意这些内容是你需要预先获取的！！不是你要生成的任务）；通过这些论文资料分析并给出核心价值，并从技术创新性、理论贡献及商业落地角度分析与点评内容。",
+            "system_prompt": summary_subagent_system_prompt,
+            "tools": []
+        }
+        middleware = [
+            CoerceToolOutput(),
+            SummarizationMiddleware(model=rc.default_model),
+            ModelFallbackMiddleware(
+                rc.default_model,  # Try first on error
+                rc.default_model,  # Then this
+            )
+        ]
         agent = create_deep_agent(
             model=rc.default_model,
             tools=tools,
             system_prompt=prompt_template,
+            middleware=middleware,
+            subagents=[summary_subagent]
         )
         input_messages = [
             {
