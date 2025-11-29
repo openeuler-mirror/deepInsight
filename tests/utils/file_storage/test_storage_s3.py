@@ -22,8 +22,8 @@ class TestStorageS3(IsolatedAsyncioTestCase):
                           "'ST_OBS_S3_SK', 'ST_OBS_S3_BUCKET1', 'ST_OBS_S3_BUCKET2' to test this case.")
 
         async with S3CompatibleObsClient(config=ConfigS3(endpoint=endpoint, ak=ak, sk=sk)) as storage: # type: ignore
-            file1 = "1.txt"
-            file2 = "1/1.txt"
+            file1 = "100%20.txt"
+            file2 = "1/中文~ 带空格.txt"
             fake_file = "1"
 
             content1 = b"123"

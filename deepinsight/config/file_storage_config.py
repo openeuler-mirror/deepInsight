@@ -66,7 +66,7 @@ class MappingItem(_ConfigModel):
 
 _MAPPING_AVAILABLE_KEYS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = dict(
     kb_doc_image=(("kb_id",), ("kb_id", "doc_id","img_path")),
-    kb_doc_binary=(("kb_id",), ("kb_id", "doc_id", "doc_name")),
+    kb_doc_binary=(("kb_id", "owner_type", "owner_id"), ("kb_id", "owner_type", "owner_id", "doc_id", "doc_name")),
     report_image=((), ("img_path",))
 )
 
@@ -75,7 +75,7 @@ class ObsMappingConfig(_ConfigModel):
     model_config = ConfigDict(frozen=True)
 
     kb_doc_image: MappingItem = MappingItem(bucket="rag_storage", object="{kb_id}/{doc_id}/{img_path}")
-    kb_doc_binary: MappingItem = MappingItem(bucket="original_files", object="conference/{kb_id}/{doc_name}")
+    kb_doc_binary: MappingItem = MappingItem(bucket="original_files", object="{owner_type}/{owner_id}/{doc_name}")
     report_image: MappingItem = MappingItem(bucket="charts", object="{img_path}")
 
     @model_validator(mode="after")

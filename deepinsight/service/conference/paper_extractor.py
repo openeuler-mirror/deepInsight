@@ -121,6 +121,7 @@ class PaperExtractionService:
             conference_id=conf_id,
             author_ids=author_ids,
             topic=paper_meta.topic,
+            full_meta=paper_meta,
         )
 
     async def extract_and_store_from_documents(self, req: ExtractPaperMetaFromDocsRequest) -> ExtractPaperMetaResponse:
@@ -154,6 +155,7 @@ class PaperExtractionService:
             conference_id=conf_id,
             author_ids=author_ids,
             topic=metadata.topic,
+            full_meta=metadata,
         )
 
     # --------------------- Conference helpers ---------------------

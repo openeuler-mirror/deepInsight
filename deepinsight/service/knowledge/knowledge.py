@@ -6,6 +6,7 @@ import hashlib
 from datetime import datetime
 from typing import List, Optional, Tuple
 
+from deepinsight.utils.file_storage import get_storage_impl
 from deepinsight.utils.file_utils import compute_md5
 from deepinsight.config.config import Config
 from deepinsight.databases.connection import Database
@@ -119,15 +120,28 @@ class KnowledgeService:
 
             extracted_text: Optional[str] = None
             try:
+                binary = req.binary
+                if not binary:
+                    with open(req.file_path, "rb") as f:
+                        binary = f.read()
+
+                # todo: put origin doc here
+                # await get_storage_impl().knowledge_file_put(
+                #     kb.kb_id, kb.owner_type, kb.owner_id, str(doc.doc_id),
+                #     doc.file_name or os.path.basename(doc.file_path),
+                #     binary
+                # )
                 payload = DocumentPayload(
                     doc_id=str(doc.doc_id),
+                    filename=req.file_name or os.path.basename(req.file_path),
+                    binary_content=binary,
                     raw_text="",  # let engine extract from source_path
                     source_path=req.file_path,
                     title=req.file_name or os.path.basename(req.file_path),
                     hash=req.md5,
                     origin="knowledge",
                 )
-                idx = await self._rag_engine.ingest_document(payload, working_dir)
+                idx = await self._rag_engine.ingest_document(payload, working_dir, req.kb_id)
                 doc.parse_status = (
                     idx.process_status.value if hasattr(idx.process_status, "value") else idx.process_status
                 ) or doc.parse_status
@@ -297,7 +311,7 @@ class KnowledgeService:
     async def reparse_document(self, kb_id: int, doc_id: int) -> KnowledgeDocumentResponse:
         with self._db.get_session() as session:
             kb, working_dir = await self._get_or_create_rag_for_kb(session, kb_id)
-            doc = (
+            doc: KnowledgeDocument = (
                 session.query(KnowledgeDocument)
                 .filter(KnowledgeDocument.kb_id == kb_id, KnowledgeDocument.doc_id == doc_id)
                 .first()
@@ -310,15 +324,19 @@ class KnowledgeService:
             extracted_text: Optional[str] = None
             idx = None
             try:
+                binary = await get_storage_impl().knowledge_file_get(kb.kb_id, kb.owner_type, kb.owner_id, str(doc_id),
+                                                                     doc.file_name or os.path.basename(doc.file_path))
                 payload = DocumentPayload(
                     doc_id=str(doc.doc_id),
+                    filename=doc.file_name or os.path.basename(doc.file_path),
+                    binary_content=binary,
                     raw_text="",
                     source_path=doc.file_path,
                     title=doc.file_name or os.path.basename(doc.file_path),
                     hash=doc.md5,
                     origin="knowledge_retry",
                 )
-                idx = await self._rag_engine.ingest_document(payload, working_dir)
+                idx = await self._rag_engine.ingest_document(payload, working_dir, kb_id)
                 doc.parse_status = (
                     idx.process_status.value if hasattr(idx.process_status, "value") else idx.process_status
                 ) or doc.parse_status

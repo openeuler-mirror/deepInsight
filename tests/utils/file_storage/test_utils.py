@@ -37,19 +37,21 @@ class TestUtilFuncs(IsolatedAsyncioTestCase):
         self.assertEqual([], await self.storage.list_buckets())
         kb_id = "_x"
         bucket = "bbb_x"
-        await self.storage.knowledge_file_init_bucket(kb_id)
+        owner = "unused"
+        owner_id = "unused_id"
+        await self.storage.knowledge_file_init_bucket(kb_id, owner, owner_id)
         self.assertEqual([bucket], await self.storage.list_buckets())
         docs = [
             (f"some_{i}.pdf", str(i), (f"{i}1" * i).encode("utf8"))
             for i in range(4, 7)
         ]
         for name, doc_id, content in docs:
-            await self.storage.knowledge_file_put(kb_id, doc_id, name, content)
+            await self.storage.knowledge_file_put(kb_id, owner, owner_id, doc_id, name, content)
         actual = set(await self.storage.list_files(bucket))
         want = {f"ccc/{kb_id}/{doc_id}/{name}" for name, doc_id, _ in docs}
         self.assertEqual(want, actual)
         for name, doc_id, content in docs:
-            self.assertEqual(content, await self.storage.knowledge_file_get(kb_id, doc_id, name))
+            self.assertEqual(content, await self.storage.knowledge_file_get(kb_id, owner, owner_id, doc_id, name))
             self.assertEqual(content, await self.storage.file_get(bucket, f"ccc/{kb_id}/{doc_id}/{name}"))
 
     async def test_chart_images(self):

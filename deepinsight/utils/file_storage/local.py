@@ -34,13 +34,14 @@ class LocalStorage(BaseFileStorage):
         else:
             os.makedirs(path, exist_ok=True)
 
-    async def bucket_create(self, bucket: str, *, exist_ok: bool = False) -> None:
+    async def bucket_create(self, bucket: str, *, exist_ok: bool = False) -> bool:
         exist = self._check_bucket_exists(StorageOp.CREATE, bucket, allow_miss=True)
         if exist:
             if exist_ok:
-                return
+                return False
             raise StorageError(StorageOp.CREATE, bucket, reason=StorageError.Reason.ALREADY_EXISTS)
         os.makedirs(pathlib.Path(self.root_dir, bucket), exist_ok=True)
+        return True
 
     async def list_buckets(self) -> list[str]:
         return [

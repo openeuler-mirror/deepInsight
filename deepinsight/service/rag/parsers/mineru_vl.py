@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import logging
-import os
-
-
 import asyncio
 import base64
+import logging
 import re
-from typing import Any, Dict, List, Optional
+import os
+import urllib.parse
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
@@ -18,7 +16,7 @@ from deepinsight.service.rag.loaders.base import ParseResult
 from deepinsight.service.rag.parsers.base import BaseDocumentParser
 from deepinsight.service.rag.types import LoaderOutput
 from deepinsight.service.schemas.rag import DocumentPayload
-
+from deepinsight.utils.file_storage import get_storage_impl
 
 
 class MineruVLParser(BaseDocumentParser):
@@ -27,146 +25,56 @@ class MineruVLParser(BaseDocumentParser):
     def __init__(self, config: MineruParserConfig):
         self._config = config
 
-    async def parse(self, payload: DocumentPayload, working_dir: str) -> LoaderOutput:
-        if not payload.source_path:
-            raise ValueError("MinerU parser requires payload.source_path to be provided")
-        file_path = payload.source_path
-        if not os.path.isfile(file_path):
-            raise FileNotFoundError(file_path)
-        
-        parse_result = await _parse_file_content(file_path)
+    async def parse(self, payload: DocumentPayload, kb_id: int | str, resource_prefix: str) -> LoaderOutput:
+        parse_result = await _parse_file_content(payload.filename, payload.binary_content)
 
-        # Process images if present
-        if getattr(parse_result, "images", None):
-            doc_name = payload.source_path or (payload.metadata or {}).get("source") or payload.doc_id
-            await _store_images(
-                working_dir,
-                payload.doc_id,
-                doc_name,
-                parse_result.images,
-            )
+        if parse_result.images:
+            await get_storage_impl().document_images_init_bucket(str(kb_id), exist_ok=True)
+            img_map_with_path = {f"images/{k}": v for k, v in parse_result.images.items()}
+            path_map = await get_storage_impl().document_images_store(str(kb_id), payload.doc_id, img_map_with_path)
             await _replace_image_link(
-                parse_result,
+                parse_result, path_map=path_map,
                 replace_alt_text=bool(self._config.enable_vl if self._config else True),
-                prefix=os.path.join("..", "..", working_dir, payload.doc_id),
+                prefix=resource_prefix,
             )
 
-        return LoaderOutput(result=parse_result, file_paths=[file_path])
+        return LoaderOutput(result=parse_result, file_paths=[payload.filename])
 
 
-async def _parse_file_content(file_path: str) -> ParseResult:
+async def _parse_file_content(filename: str, binary: bytes) -> ParseResult:
     """Parse file content using MinerU for office documents or LangChain loaders for other types."""
-    ext = os.path.splitext(file_path.lower())[1]
-    doc_with_resource: ParseResult | None = None
-    docs = []
-    try:
-        if ext in {".pdf", ".docx", ".doc", ".pptx", ".ppt"}:
-            try:
-                from deepinsight.service.rag.loaders.mineru_online import MinerUOnlineClient
-
-                with open(file_path, mode="rb") as f:
-                    doc_with_resource = await MinerUOnlineClient().process(os.path.basename(file_path), f.read())
-            except Exception as e:
-                logging.error("Failed to parse %r using MinerU: %s", file_path, e)
-                docs = []
-        elif ext in {".txt", ".md", ".markdown"}:
-            try:
-                from langchain_community.document_loaders import TextLoader
-
-                loader = TextLoader(file_path, encoding="utf-8")
-                docs = loader.load()
-            except Exception:
-                docs = []
-        elif ext == ".csv":
-            try:
-                from langchain_community.document_loaders import CSVLoader
-
-                loader = CSVLoader(file_path)
-                docs = loader.load()
-            except Exception:
-                docs = []
-        else:
-            try:
-                from langchain_community.document_loaders import TextLoader
-
-                loader = TextLoader(file_path, encoding="utf-8")
-                docs = loader.load()
-            except Exception:
-                docs = []
-    except Exception:
-        docs = []
-
-    if not (docs or doc_with_resource):
-        logging.warning("Extraction on file %s failed, fallback to plain text reader.", file_path)
-        text = _extract_text(file_path)
-        return ParseResult(text=[LCDocument(page_content=text, metadata={"source": file_path})])
-
-    return doc_with_resource or ParseResult(text=docs)
-
-
-def _extract_text(file_path: str) -> str:
-    _, ext = os.path.splitext(file_path.lower())
-    text_based_exts = {".txt", ".md", ".markdown"}
-    try:
-        if ext in text_based_exts:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                return f.read()
+    ext = filename.lower().rsplit(".")[-1]
+    if ext in {"pdf", "docx", "doc", "pptx", "ppt"}:
         try:
-            import textract
-
-            content = textract.process(file_path)
-            return content.decode("utf-8", errors="ignore")
-        except Exception:
-            with open(file_path, "rb") as f:
-                raw = f.read()
-            try:
-                return raw.decode("utf-8")
-            except Exception:
-                return raw.decode("utf-8", errors="ignore")
-    except Exception as e:
-        raise RuntimeError(f"Text extraction failed for {file_path}: {e}") from e
+            from deepinsight.service.rag.loaders.mineru_online import MinerUOnlineClient
+            return await MinerUOnlineClient().process(filename, binary)
+        except Exception as e:
+            logging.error("Failed to parse %r using MinerU: %s", filename, e)
+            raise
+    text = _extract_text(ext, binary)
+    return ParseResult(text=[LCDocument(page_content=text, metadata={"source": filename})])
 
 
-async def _store_images(working_dir: str, doc_id: str, doc_name: str, images: dict[str, bytes]) -> None:
-    doc_name = os.path.basename(doc_name)
-    img_dir = os.path.join(working_dir, doc_id, "images")
-    logging.debug("Begin to store %d images to %r for document %r", len(images), img_dir, doc_name)
-    if not os.path.exists(img_dir):
-        os.makedirs(img_dir, exist_ok=True)
-
-    belong_file_path = os.path.join(img_dir, "belongs_to.txt")
+def _extract_text(ext: str, binary: bytes) -> str:
     try:
-        with open(belong_file_path, mode="xt+", encoding="utf8") as belong_file:
-            belong_file.write(doc_name)
-            existed = "an unknown document"
-    except FileExistsError:
-        with open(belong_file_path, mode="rt", encoding="utf8") as belong_file:
-            existed = belong_file.read()
-            existed = existed if len(existed) < 256 else (existed[:256] + "...")
-            existed = f"document named {existed!r}"
-
-    for filename, content in images.items():
-        file_path = os.path.join(img_dir, filename)
+        return binary.decode("utf8")
+    except UnicodeDecodeError:
+        pass
+    if ext in {"txt", "md", "markdown"}:
         try:
-            with open(file_path, mode="xb") as f:
-                f.write(content)
-                continue
-        except FileExistsError:
+            return binary.decode("gb2312")
+        except Exception:  # noqa: fallback
             pass
-        logging.debug("Begin to store image for %r to %r", doc_name, file_path)
-        with open(file_path, mode="wb+") as f:
-            if f.read() != content:
-                logging.warning("Image %s already exists for %s, overwrite.", file_path, existed)
-                f.write(content)
-            else:
-                logging.debug("Image %s already exists for %s with same content, skip.", file_path, existed)
-    logging.debug("End to store %d images to %r for document %r", len(images), img_dir, doc_name)
+        return binary.decode("utf8", errors="ignore")
+    from deepinsight.service.conference.paper_extractor import PaperParseException
+    raise PaperParseException("Unsupported file. Please select another parser to parse this file.")
 
 
-async def _replace_image_link(doc: ParseResult, replace_alt_text: bool = True,
+async def _replace_image_link(doc: ParseResult, replace_alt_text: bool = True, path_map: dict[str, str] = None,
                               vl: BaseChatModel = None, prefix: str = "") -> ParseResult:
     if not doc.images:
         return doc
+    path_map = path_map or {}
     if prefix and not prefix.endswith("/"):
         prefix += "/"
     used_images: dict[str, bytes] = {}
@@ -187,6 +95,8 @@ async def _replace_image_link(doc: ParseResult, replace_alt_text: bool = True,
         replacement = {f"images/{k}": v for k, v in replacement.items() if v}
         if not replacement:
             logging.warning(f"All failure on creating image description for {len(used_images)} images.")
+        else:
+            logging.info("Try create %s image description and %s succeeded.", len(used_images), len(replacement))
     else:
         replacement = {}
 
@@ -196,7 +106,7 @@ async def _replace_image_link(doc: ParseResult, replace_alt_text: bool = True,
             return m.group()
 
         new_alt = replacement[url] if url in replacement else m.group(1)
-        new_path = f"{prefix}{url}"
+        new_path = f"{prefix}{urllib.parse.quote(path_map.get(url, url), safe='/')}"
         return f"![{new_alt}]({new_path})"
 
     for chunk in doc.text:

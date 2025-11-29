@@ -3,6 +3,7 @@ __all__ = ["S3CompatibleObsClient"]
 
 import hashlib
 import hmac
+import json
 import logging
 import urllib.parse
 from datetime import datetime
@@ -13,7 +14,6 @@ from pydantic import ConfigDict, PrivateAttr
 from deepinsight.config.config import Config
 from deepinsight.config.file_storage_config import ConfigS3
 from deepinsight.utils.file_storage.base import BaseFileStorage, StorageError, StorageOp
-
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class S3CompatibleObsClient(BaseFileStorage):
             root = ElementTree.fromstring(xml_content)
             # Find all Bucket/Name elements - handle namespace
             buckets = []
-            
+
             for bucket in root.findall(".//{http://s3.amazonaws.com/doc/2006-03-01/}Bucket"):
                 name_elem = bucket.find("{http://s3.amazonaws.com/doc/2006-03-01/}Name")
                 if name_elem is not None and name_elem.text:
@@ -55,7 +55,7 @@ class S3CompatibleObsClient(BaseFileStorage):
                     name_elem = bucket.find("{*}Name")
                     if name_elem is not None and name_elem.text:
                         buckets.append(name_elem.text)
-            
+
             return buckets
         except ElementTree.ParseError as e:
             logger.error(f"Failed to parse XML response: {e}")
@@ -93,14 +93,14 @@ class S3CompatibleObsClient(BaseFileStorage):
     def from_config(cls, config: Config) -> "S3CompatibleObsClient":
         return cls(config=config.file_storage.s3, keymap=config.file_storage.map_rule)
 
-    async def bucket_create(self, bucket: str, *, exist_ok: bool = False) -> None:
+    async def bucket_create(self, bucket: str, *, exist_ok: bool = False) -> bool:
         """Create a new bucket."""
         url = self._request_url(bucket)
         try:
             status, content, headers = await self._make_request("HEAD", url)
             if status == 200:
                 if exist_ok:
-                    return
+                    return False
                 raise StorageError(StorageOp.CREATE, bucket, reason=StorageError.Reason.ALREADY_EXISTS)
             elif status == 400:
                 raise StorageError(StorageOp.CREATE, bucket, reason=StorageError.Reason.NAME_ILLEGAL)
@@ -110,7 +110,7 @@ class S3CompatibleObsClient(BaseFileStorage):
                 raise StorageError(StorageOp.CREATE, bucket, reason=StorageError.Reason.OTHER)
         except aiohttp.ClientError as e:
             raise StorageError(StorageOp.CREATE, bucket, reason=StorageError.Reason.NETWORK) from e
-        
+
         try:
             status, content, headers = await self._make_request("PUT", url)
             if status not in [200, 201]:
@@ -122,6 +122,7 @@ class S3CompatibleObsClient(BaseFileStorage):
         except aiohttp.ClientError as e:
             logger.error(f"Network error creating bucket: {e}")
             raise StorageError(StorageOp.CREATE, bucket, reason=StorageError.Reason.NETWORK) from e
+        return True
 
     async def list_buckets(self) -> list[str]:
         try:
@@ -146,7 +147,7 @@ class S3CompatibleObsClient(BaseFileStorage):
         if params:
             url += "?" + "&".join(f"{k}={urllib.parse.quote(v, safe='')}"
                                   for k, v in sorted(params.items(), key=lambda i: i[0]))
-        
+
         try:
             status, content, headers = await self._make_request("GET", url)
             if status == 404:
@@ -164,7 +165,7 @@ class S3CompatibleObsClient(BaseFileStorage):
 
     async def file_add(self, bucket: str, filename: str, content: bytes) -> None:
         url = self._request_url(bucket, filename)
-        
+
         try:
             status, content_resp, headers = await self._make_request("PUT", url, data=content)
             if status == 404:
@@ -206,13 +207,44 @@ class S3CompatibleObsClient(BaseFileStorage):
                 raise StorageError(StorageOp.GET, bucket, filename, reason=StorageError.Reason.PERMISSION)
             elif status != 200:
                 error_text = content.decode("utf-8", errors="ignore")
+                if "InvalidBucketName" in error_text:
+                    raise StorageError(StorageOp.GET, bucket, filename, reason=StorageError.Reason.BUCKET_NOT_FOUND)
                 logger.error(f"Failed to get file {filename} from bucket {bucket}: {error_text}")
                 raise StorageError(StorageOp.GET, bucket, filename, reason=StorageError.Reason.OTHER)
-            
+
             return content
         except aiohttp.ClientError as e:
             logger.error(f"Network error getting file: {e}")
             raise StorageError(StorageOp.GET, bucket, filename, reason=StorageError.Reason.NETWORK) from e
+
+    async def bucket_allow_anonymous_get(self, bucket: str) -> None:
+        url = self._request_url(bucket) + "?policy="
+        try:
+            status, content, headers = await self._make_request(
+                "PUT", url, headers={"Content-Type": "application/json"},
+                data=json.dumps({
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": "*",
+                            "Action": "s3:GetObject",
+                            "Resource": f"arn:aws:s3:::{bucket}/*"
+                        }
+                    ]
+                }).encode("utf8")
+            )
+            if status == 404:
+                raise StorageError(StorageOp.GET, bucket, reason=StorageError.Reason.FILE_NOT_FOUND)
+            elif status == 403:
+                raise StorageError(StorageOp.GET, bucket, reason=StorageError.Reason.PERMISSION)
+            elif status not in {200, 204}:
+                error_text = content.decode("utf-8", errors="ignore")
+                logger.error(f"Failed to set bucket {bucket} policy to allow anonymous get: {error_text}")
+                raise StorageError(StorageOp.GET, bucket, reason=StorageError.Reason.OTHER)
+        except aiohttp.ClientError as e:
+            logger.error(f"Network error setting bucket policy to allow anonymous get: {e}")
+            raise StorageError(StorageOp.CONFIG, bucket, reason=StorageError.Reason.NETWORK) from e
 
     def _get_aws_v4_signature(self, method: str, path: str, headers: dict, payload: bytes = b'',
                               query: str = '') -> dict:
@@ -222,7 +254,7 @@ class S3CompatibleObsClient(BaseFileStorage):
 
         # AWS V4 signature parameters
         service = "s3"
-        region = "us-east-1"  # Default region, can be made configurable
+        region = "us-east-1"
         algorithm = "AWS4-HMAC-SHA256"
 
         now = datetime.utcnow()
@@ -230,7 +262,7 @@ class S3CompatibleObsClient(BaseFileStorage):
         date_stamp = now.strftime("%Y%m%d")
 
         # Calculate signature
-        canonical_uri = urllib.parse.quote(path, safe="/~")
+        canonical_uri = path
         canonical_querystring = query
         canonical_headers = f"host:{host}\nx-amz-date:{amz_date}\n"
         signed_headers = "host;x-amz-date"
@@ -265,10 +297,10 @@ class S3CompatibleObsClient(BaseFileStorage):
         return k_signing
 
     def _request_url(self, bucket: str = None, key: str = None) -> str:
-        bucket = urllib.parse.quote(bucket, safe="/") if bucket else bucket
-        key = urllib.parse.quote(key, safe="/") if key else key
         base_url = self.config.endpoint.rstrip("/")
         if bucket:
+            bucket = urllib.parse.quote(bucket, safe="~/")
+            key = urllib.parse.quote(key, safe="~/") if key else key
             return f"{base_url}/{bucket}/{key}" if key else f"{base_url}/{bucket}"
         return f"{base_url}/"
 
