@@ -31,6 +31,7 @@ from deepinsight.core.types.graph_config import ResearchConfig
 from deepinsight.core.types.research import FinalResult
 
 from deepinsight.core.agent.deep_research.supervisor import graph as deep_research_graph
+from deepinsight.core.agent.conference_research.conf_stat_value_mining import conf_stat_graph
 from deepinsight.core.tools.file_system import register_fs_tools, fs_instance
 
 
@@ -134,7 +135,6 @@ async def question_clarify_node(state: ConferenceState, config: RunnableConfig):
     else:
         return Command(
             goto=result.particapant_members,
-            update={"messages": [AIMessage(content=result.particapant_members)]}
         )
 
 
@@ -190,13 +190,13 @@ async def conference_overview_node(state: ConferenceState, config: RunnableConfi
 
 
 async def conference_submission_node(state: ConferenceState, config: RunnableConfig):
-    result = await deep_research_graph.with_config(
+    result = await conf_stat_graph.with_config(
         configurable=await construct_sub_config(config, ConferenceGraphNodeType.CONFERENCE_SUBMISSION)
     ).ainvoke({
         "messages": state["messages"]
     })
     return {
-        "conference_submission": result["final_report"]
+        "conference_submission": result["static_summary"]
     }
 
 
@@ -247,8 +247,8 @@ async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
     ).format()
     output_file = f"/{str(rc.run_id)}/conference_summary.md"
     logging.debug(
-        f"conference_best_papers_summary:{state['conference_best_papers_summary']}, conference_topic:{state['conference_topic']}")
-    user_prompt = f"学术会议价值论文列表：{state['conference_best_papers_summary']},会议主题相关信息：{state['conference_topic']},保存到路径：{output_file} "
+        f"conference_best_papers_summary:{state['conference_best_papers_summary']}, conference_topic:{state.get('conference_topic', '')}")
+    user_prompt = f"学术会议价值论文列表：{state['conference_best_papers_summary']},会议主题相关信息：{state.get('conference_topic', '')},保存到路径：{output_file} "
     tools = register_fs_tools(fs_instance)
     tool_instance = TavilySearch(
         max_results=2,
@@ -266,7 +266,7 @@ async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
     agent = create_deep_agent(
         model=model,
         tools=tools,
-        instructions=summary_prompt,
+        system_prompt=summary_prompt,
     )
 
     try:

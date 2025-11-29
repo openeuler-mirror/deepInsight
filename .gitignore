@@ -6,3 +6,4 @@ deepinsight.db
 deepinsight.db-journal
 data/
 charts/
+.DS_Store

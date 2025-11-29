@@ -4,6 +4,7 @@ from datetime import datetime
 import json
 import logging
 import os
+from pathlib import PurePosixPath
 from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict, Union, get_args, get_origin
 from pydantic import BaseModel, Field
 
@@ -19,10 +20,83 @@ from langgraph.constants import END
 from langgraph.graph import StateGraph
 
 from deepinsight.core.tools.file_download import download_file_from_url
+from deepinsight.core.types.graph_config import ResearchConfig
 from deepinsight.core.utils.research_utils import parse_research_config
 
 DEFAULT_LIST_STYLE_DESC = "\n当输出多条内容时，采用markdown列表格式，先给出小标题，再给出内容，示例如下\n  * **你的小标题**: 具体内容\n* **小标题2**: 具体内容\n"
 CONFERENCE_OVERVIEW_EXAMPLE = "以ICML为例: ICML以推动机器学习理论与应用的前沿研究为核心目标，涵盖监督学习、无监督学习、强化学习、生成式AI、多模态学习等基础领域，以及医疗、自动驾驶、气候变化等跨学科应用。作为机器学习领域的 旗舰会议，其论文质量和学术影响力被广泛认可，与NeurIPS、ICLR并称为全球三大机器学习顶会。"
+
+
+# ========= 路径归一化工具 =========
+def _resolve_chart_or_files_path(raw_path: Optional[str], rc: ResearchConfig) -> Optional[str]:
+    """将 LLM/工具生成的相对路径转换为 PPT 可用的实际路径（基于路径分段匹配）。
+
+    规则（分段匹配，不使用 substring）：
+    - 绝对存在路径：直接返回。
+    - 路径分段含 `rc.chart_image_dir`：拼为 `work_root/chart_image_dir/<tail>`。
+    - 路径分段含 `conference_report_result` 与 `files`：拼为 `work_root/conference_report_result/<thread_id>/files/<tail>`。
+    - 其他：原样返回。
+    """
+    if not raw_path:
+        return raw_path
+
+    try:
+        # 已是绝对路径且存在
+        if os.path.isabs(raw_path) and os.path.exists(raw_path):
+            return raw_path
+
+        work_root = rc.work_root or "./"
+        chart_dir_cfg = (rc.chart_image_dir or "charts").lstrip("./")
+        thread_id = rc.thread_id or "default_thread"
+
+        # 用 POSIX 风格统一分段，避免不同分隔符与 ../../../ 的干扰
+        raw_norm = raw_path.replace("\\", "/")
+        posix = PurePosixPath(raw_norm)
+        segments = list(posix.parts)
+        filename = segments[-1] if segments else os.path.basename(raw_norm)
+
+        # 处理图表目录（精确分段匹配），保留子目录结构
+        if chart_dir_cfg and chart_dir_cfg in segments:
+            idx = segments.index(chart_dir_cfg)
+            tail_segments = segments[idx + 1:]
+            tail_rel = str(PurePosixPath(*tail_segments)) if tail_segments else filename
+            return os.path.join(work_root, chart_dir_cfg, tail_rel)
+
+        # 处理 conference_report_result / files（精确分段匹配），保留 files 后的子目录
+        if "conference_report_result" in segments:
+            if "files" in segments:
+                files_idx = segments.index("files")
+                tail_after_files = segments[files_idx + 1:]
+                tail_rel = str(PurePosixPath(*tail_after_files)) if tail_after_files else filename
+                return os.path.join(work_root, "conference_report_result", thread_id, "files", tail_rel)
+            else:
+                return os.path.join(work_root, "conference_report_result", thread_id, filename)
+
+    except Exception as e:
+        logging.warning(f"[resolve_path] Unexpected error for '{raw_path}': {e}")
+
+    # 默认返回原值，避免破坏
+    return raw_path
+
+
+def _normalize_image_paths_in_pages(pages: List[Dict[str, Any]], rc) -> None:
+    """递归扫描 pages 中的所有 image 内容，规范化其 path 字段到实际可用路径。"""
+
+    def _normalize(obj: Any):
+        if isinstance(obj, dict):
+            # 命中一个 image 内容
+            if obj.get("type") == "image" and "path" in obj:
+                obj["path"] = _resolve_chart_or_files_path(obj.get("path"), rc)
+            # 递归子项
+            for v in obj.values():
+                _normalize(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                _normalize(item)
+        # 其他类型忽略
+
+    for page in pages:
+        _normalize(page)
 
 
 class PPTGraphNodeType(str, Enum):
@@ -730,11 +804,14 @@ async def assemble_ppt_json(state: PPTState, config: RunnableConfig):
     # summary page
     if state.get("summary_json") is not None:
         pages.append(state["summary_json"].model_dump(by_alias=True))
+    # 将图片路径进行归一化，保证 PPT 模板服务可直接读取
+    rc = parse_research_config(config)
+    _normalize_image_paths_in_pages(pages, rc)
+
     state["ppt_json"] = pages
 
     time_for_filename = now.strftime("%Y%m%d%H%M%S")
 
-    rc = parse_research_config(config)
     current_thread_work_root = os.path.join(rc.work_root, "conference_report_result", rc.thread_id)
     ppt_generate_file_name = os.path.join(
         current_thread_work_root,

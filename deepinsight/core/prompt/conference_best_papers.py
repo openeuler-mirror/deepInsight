@@ -370,18 +370,69 @@ paper_analysis_no_rag_prompt = r"""
 - 分析方法原理、可扩展性、性能改进及潜在风险  
 - 本步骤完成标志：已全面理解论文，可撰写深度分析
 
-◆ 第四步：生成结构化分析报告（带图片）  
-- 使用 Markdown 格式输出，图片嵌入语义位置，确保文字与图表紧密关联  
-- 结构如下：
-  1. 标题：`# [论文完整标题,单词之间以下划线分割]`  
-  2. 作者：`**作者**：[机构] [姓名]`  
-  3. 问题与挑战：描述要解决的问题、痛点及挑战，要详细阐述问题产生的背景及其在行业中的关键影响。  
-  4. 关键技术：详细描述方法、算法、系统设计，嵌入架构或流程图，突出重点，内容详实。  
-  5. 技术效果：性能指标、应用场景、实验结果图及说明，突出改进幅度  
-  6. 关键洞察：2-4 条专家视角深度分析，包括趋势、商业潜力、行业影响，洞察需体现对学术与产业趋势
-    的综合判断，并分析该研究如何启发华为在未来技术方向上的战略决策。要求是具体的技术，不要泛泛而谈。
-  7. 总结：2-3 句概括论文核心价值与意义，总结应紧扣论文提出的具体技术方案，明确其在性能、架构或算法层面的关键贡献；结合论文技术成果，分析其在华为相
-     关业务体系或研发方向中的潜在应用价值，指出该研究为华为在前沿技术创新或产业生态拓展中提供的启示与落地路径。
+◆ 第四步：生成结构化分析报告（带图片）
+#### 输出格式要求
+1. **总结性标题**：
+   * 格式：`# [创新方法名称--创新通俗描述]`
+     基于论文的标题和摘要，生成一个总结性的标题。要求：
+     * 字数在25字左右；
+     * 通俗易懂，便于非专业读者理解（但不口语化）；
+     * 能准确反映论文的创新点或核心贡献；
+     * 输出格式必须为：【创新方法名称--创新通俗描述】
+       示例：`QUASI--基于粗粒度流量实现高效精确队列分析`
+2. **【优秀分类】标题**：
+   * 格式：`#【[优秀分类]】[论文完整标题]`
+     优秀分类包括（如果本身有多个，从前到后选最近一个）：
+     `["获奖论文", "会议演讲论文", "企业高潜论文", "学术影响论文"]`
+     示例：
+     `【获奖论文】NeuroFlux: A Hybrid Formal-Statistical Approach for xxxx`
+3. **主题**：
+   * 格式：`# [论文所属主题]`
+     通过PythonREPLTool工具查询数据库获取论文主题。
+4. **作者**：
+   * **格式**：`**作者**：[机构] [姓名]`
+   * 说明：列出论文的所有作者，包括其所属机构。确保格式统一且完整。
+5. **问题与挑战**：
+   * **格式**：一句话总结研究目标和背景，接着分析当前的行业痛点。
+   * 说明：需重点描述该问题的学术意义和产业应用价值。阐明该领域面临的关键挑战以及本研究如何填补这一空白。问题与挑战部分应紧密联系论文的核心创新。
+   * **关键要求**：
+     * 强调研究的问题背景，并结合实际应用场景。
+     * 精确描述解决该问题的学术和产业价值。
+     * **核心描述加粗**，以突出研究的亮点和核心难题。
+6. **关键技术**：
+   * **格式**：详细描述研究的方法、架构或算法流程。
+   * 说明：应包括论文的核心技术路径，并对各个关键步骤进行清晰的分解，便于理解。可以借助架构图或流程图来辅助描述，图示必须采用内部 IP 外链格式。
+   * **关键要求**：
+     * **结构清晰**：应采用“总分结构”，先做一个简洁的总结，再逐步展开。
+     * **重点突出**：创新点或关键技术要明确罗列，**加粗**重要的技术创新及其带来的效果。
+     * **明确价值**：每个技术创新后，简洁说明该技术解决了什么问题，达到了什么效果或产生了什么潜在价值。
+7. **技术效果**：
+   * **格式**：展示实验结果、性能改进及应用场景，并嵌入实验结果图。
+   * 说明：详细展示实验设计、评估方法以及量化结果。所有图表和数据应有清晰标注，并采用内部 IP 外链格式。对比实验的结果需要明确显示提升幅度及其影响。
+   * **关键要求**：
+     * **总分结构**：先概括实验结果，再按维度逐一展开。
+     * **量化结果**：展示实验数据时，要列出具体的性能指标，并提供对比结果。例如：“噪声抵抗能力：相比LLM-Rec-Qwen提升23.7%(噪声比例20%->100%场景)“。
+     * **场景明确**：给出具体的应用场景或数据集，表明这些技术如何在真实环境中发挥作用。
+8. **关键洞察（专家视角总结）**：
+   * **格式**：从专家的角度对论文内容进行深入分析，结合业界专家的观点及学术趋势进行总结。
+   * 说明：此部分旨在总结论文的技术进展，并探讨其在未来技术方向、商业潜力及行业生态中的启示。可结合对论文的深入思考，展现对行业的长远洞察。
+   * **关键要求**：
+     * 汇总2–4条深度分析，尤其要结合学术界和业界的最新动向。
+     * 强调论文的前瞻性及其对未来技术发展的指引作用。
+     * **深入分析潜在应用**，尤其是该技术对特定领域（如云计算、人工智能、物联网等）的实际价值和商业影响。
+9. **总结**：
+   * **格式**：简要概述论文的核心价值与贡献。
+   * 说明：总结论文所带来的主要技术突破，并分析其在实际应用中的潜力。要特别强调论文在性能、架构或算法层面的独特贡献。
+   * **关键要求**：
+     * 归纳论文的主要技术成果，并明确指出其创新性。
+     * 强调这些技术创新如何推动相关领域的进步，并分析该研究如何在未来的产品开发中产生实际价值。
+     * 结合华为中央软件院相关产品线，分析该技术可能的落地路径和应用场景。
+---
+#### 额外注意事项：
+1. **论文中的创新点及贡献**应当在每个部分中贯穿始终，确保每一段的技术描述和分析都聚焦于论文的核心创新。
+2. **图表和实验数据**必须清晰、易读，并与文中描述相一致。确保所有的实验图表都具有详细的注释和数据来源，图示要采用内部 IP 外链格式。
+3. **语言规范性**：确保语句简洁明了，避免冗长或含糊不清的表述。需要结合领域内的专业术语，但避免过多使用晦涩的技术细节，确保不同层次的读者都能理解。
+
 
 ◆ 第五步：保存文件（强制执行）  
 - 将 Markdown 报告保存至 `{output_dir}`  
@@ -436,6 +487,78 @@ paper_analysis_no_rag_prompt = r"""
       * 对行业影响
  7. 总结：
        - 2–3 句话概括论文核心价值与意义
+
+  ## ⚙️ 能力说明
+
+1. PythonREPLTool工具说明： 
+   - **PythonREPLTool**：执行任意 Python 代码，可以用来查询数据库。
+
+2. **数据库访问方式**（使用 SQLAlchemy Session）：  
+   ```python
+   from databases.connection import Database
+   from databases.models.conference_paper import Author, Conference, Paper, PaperAuthorRelation
+   from sqlalchemy import select, func, desc, distinct
+
+   with Database().get_session() as session:
+       # 执行 SQLAlchemy 查询
+````
+
+3. 数据库模型说明：
+
+```
+class Author(PaperBase):
+    __tablename__ = 'author_table'
+
+    author_id = Column(Integer, primary_key=True, autoincrement=True)
+    author_name = Column(String(100), nullable=False)
+    email = Column(String(255))
+    affiliation = Column(String(255))
+    affiliation_country = Column(String(100))
+    affiliation_city = Column(String(100))
+    created_at = Column(TIMESTAMP, default=datetime.now)
+    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
+
+
+class Conference(PaperBase):
+    __tablename__ = 'conference_table'
+
+    conference_id = Column(Integer, primary_key=True, autoincrement=True)
+    full_name = Column(String(255), nullable=False)
+    short_name = Column(String(50))
+    year = Column(Integer, nullable=False)
+    location = Column(String(100))
+    start_date = Column(Date)
+    end_date = Column(Date)
+    website = Column(String(255))
+    topics: Mapped[list[str]] = Column(JSON)
+    created_at = Column(TIMESTAMP, default=datetime.now)
+    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
+
+
+class Paper(PaperBase):
+    __tablename__ = 'paper_table'
+    paper_id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(255), nullable=False)
+    conference_id = Column(Integer)  # 直接存储ID，不使用ForeignKey
+    publication_year = Column(Integer)
+    abstract = Column(Text)
+    keywords = Column(String(255))
+    author_ids = Column(String(500))  # 存储作者ID列表，如 "1,3,5"
+    reference_ids = Column(String(500))  # 存储参考文献ID列表
+    topic = Column(String(100), nullable=True)
+    created_at = Column(TIMESTAMP, default=datetime.now)
+    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
+
+
+class PaperAuthorRelation(PaperBase):
+    __tablename__ = 'paper_author_relation_table'
+
+    relation_id = Column(Integer, primary_key=True, autoincrement=True)
+    paper_id = Column(Integer)  # 直接存储ID
+    author_id = Column(Integer)  # 直接存储ID
+    author_order = Column(Integer, nullable=False)
+    is_corresponding = Column(Boolean, default=False, nullable=False)
+    created_at = Column(TIMESTAMP, default=datetime.now)
 """
 
 paper_analysis_prompt = r"""

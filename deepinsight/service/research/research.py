@@ -115,6 +115,8 @@ class ResearchService:
                 "search_api": req.search_api or [],
                 # Working path from global config (workspace.work_root), absolute for consistency
                 "work_root": os.path.abspath(self.config.workspace.work_root) if getattr(self.config, "workspace", None) else None,
+                # Relative image folder under work_root for chart outputs
+                "chart_image_dir": getattr(self.config.workspace, "chart_image_dir", None),
             },
             # Keep recursion_limit aligned with typical graph defaults
             "recursion_limit": 1000,
@@ -194,6 +196,8 @@ class ResearchService:
                     "prompt_group": "conference_ppt_generate",
                     # Working path from global config (workspace.work_root), absolute for consistency
                     "work_root": os.path.abspath(self.config.workspace.work_root) if getattr(self.config, "workspace", None) else None,
+                    # Relative image folder under work_root for chart outputs
+                    "chart_image_dir": getattr(self.config.workspace, "chart_image_dir", None),
                 },
                 "callbacks": [CallbackHandler()],
             }

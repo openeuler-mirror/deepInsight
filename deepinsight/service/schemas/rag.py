@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, List
+from enum import Enum
 
 from pydantic import BaseModel, Field
 
@@ -27,6 +28,12 @@ class DocumentPayload(BaseModel):
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Extra metadata")
 
 
+class DocProcessStatus(str, Enum):
+    pending = "pending"
+    processing = "processing"
+    parsed = "parsed"
+    failed = "failed"
+
 class IndexResult(BaseModel):
     """Indexing result."""
 
@@ -38,6 +45,11 @@ class IndexResult(BaseModel):
     documents: Optional[List[Dict[str, Any]]] = Field(
         default=None,
         description="List of parsed documents with 'page_content' and 'metadata' keys",
+    )
+    # Processing status from LightRAG after ingestion
+    process_status: Optional[DocProcessStatus] = Field(
+        default=None,
+        description="Document processing status reported by LightRAG",
     )
 
 
@@ -55,4 +67,5 @@ __all__ = [
     "DocumentPayload",
     "IndexResult",
     "Passage",
+    "DocProcessStatus",
 ]

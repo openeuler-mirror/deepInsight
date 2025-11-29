@@ -106,6 +106,12 @@ class ResearchConfig(BaseModel):
         description="Base working path for outputs and storage (from config.yaml rag.work_root)",
     )
 
+    # Image folder under work_root for chart outputs
+    chart_image_dir: Optional[str] = Field(
+        default=None,
+        description="Relative image folder under work_root for chart PNG/HTML outputs",
+    )
+
     def get_model(self, provider_and_name: Optional[str] = None) -> Optional[BaseChatModel]:
         """Return a model backend instance.
 

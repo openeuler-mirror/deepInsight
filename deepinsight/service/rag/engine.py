@@ -12,7 +12,7 @@ from lightrag.kg.shared_storage import initialize_pipeline_status
 from deepinsight.config.config import CONFIG, Config
 from deepinsight.utils.llm_utils import init_lightrag_llm_model_func
 
-from ..schemas.rag import DocumentPayload, IndexResult, Passage
+from ..schemas.rag import DocumentPayload, IndexResult, Passage, DocProcessStatus
 
 
 class RAGEngine:
@@ -87,6 +87,7 @@ class RAGEngine:
             # Pass relational DB document id into LightRAG for linkage
             await rag.ainsert([text], ids=[doc.doc_id], file_paths=file_paths)
             chunks_count = _estimate_chunks(text)
+            process_status = await self._fetch_doc_status(rag, str(doc.doc_id))
         else:
             if not doc.source_path or not os.path.isfile(doc.source_path):
                 raise ValueError("raw_text not provided and source_path missing or unreadable")
@@ -97,6 +98,7 @@ class RAGEngine:
             # Pass relational DB document id into LightRAG for linkage
             await rag.ainsert([text], ids=[doc.doc_id], file_paths=[doc.source_path])
             chunks_count = _estimate_chunks(text)
+            process_status = await self._fetch_doc_status(rag, str(doc.doc_id))
 
         return IndexResult(
             doc_id=doc.doc_id,
@@ -104,6 +106,7 @@ class RAGEngine:
             chunks_count=chunks_count,
             extracted_text=text,
             documents=documents_data,
+            process_status=process_status,
         )
 
     async def semantic_search(self, working_dir: str, query: str, top_k: int = 8) -> List[Passage]:
@@ -145,6 +148,45 @@ class RAGEngine:
                     scor = float(getattr(item, "score", 0.0))
                     passages.append(Passage(doc_id=base_doc_id, chunk_id=f"res:{i}", text=txt, score=scor, meta={}))
         return passages[:top_k]
+
+    async def _fetch_doc_status(self, rag: LightRAG, doc_id: str) -> Optional[DocProcessStatus]:
+        try:
+            res = await rag.aget_docs_by_ids([doc_id])
+
+            if isinstance(res, dict):
+                item = res.get(doc_id) or next(iter(res.values()), None)
+            elif isinstance(res, list):
+                item = res[0] if res else None
+            else:
+                item = res
+
+            if item is None:
+                return DocProcessStatus.failed
+
+            status = item["status"]
+            if not status:
+                return DocProcessStatus.failed
+
+            s = None
+            if isinstance(status, str):
+                s = status.lower()
+            else:
+                s = getattr(status, "value", None)
+                if isinstance(s, str):
+                    s = s.lower()
+                else:
+                    # Fallback to string repr
+                    s = str(status).lower()
+
+            if s in {"pending", "processing", "preprocessed"}:
+                return DocProcessStatus.processing
+            if s in {"processed"}:
+                return DocProcessStatus.parsed
+            if s in {"failed"}:
+                return DocProcessStatus.failed
+            return DocProcessStatus.failed
+        except Exception:
+            return DocProcessStatus.failed
 
 
 # --------- Robust text IO helpers (aligned with KnowledgeService behavior) ---------

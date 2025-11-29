@@ -177,23 +177,23 @@ class ConferenceCommand:
             query = f"请对{full_name}（{year}）的会议文档进行研究，总结主题、趋势与亮点，并生成综合报告。"
             # File stem for output (markdown/pdf)
             result_stem = f"conference_{(short_name or base_name_no_year).strip()}_{year}"
-            # # Execute streaming research and save report
-            # run_research_and_save_report_sync(
-            #     service=research_service,
-            #     request=ResearchRequest(
-            #         conversation_id=conv_id,
-            #         query=query,
-            #         scene_type=SceneType.CONFERENCE,
-            #         allow_user_clarification=False,
-            #         allow_edit_research_brief=False,
-            #         allow_edit_report_outline=False,
-            #         search_api=[SearchAPI.TAVILY],
-            #     ),
-            #     result_file_stem=result_stem,
-            #     gen_pdf=True,
-            #     live=Live(console=get_console()),
-            # )
-            # print("✓ 研究报告生成完成（Markdown/PDF）")
+            # Execute streaming research and save report
+            run_research_and_save_report_sync(
+                service=research_service,
+                request=ResearchRequest(
+                    conversation_id=conv_id,
+                    query=query,
+                    scene_type=SceneType.CONFERENCE,
+                    allow_user_clarification=False,
+                    allow_edit_research_brief=False,
+                    allow_edit_report_outline=False,
+                    search_api=[SearchAPI.TAVILY],
+                ),
+                result_file_stem=result_stem,
+                gen_pdf=True,
+                live=Live(console=get_console()),
+            )
+            print("✓ 研究报告生成完成（Markdown/PDF）")
 
             # --- Generate PPT based on conversation history ---
             try:

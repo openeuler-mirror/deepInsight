@@ -392,11 +392,14 @@ async def _generate_chart_with_translation(config: RunnableConfig, target_lang: 
     call_result = await generate_bar_chart.ainvoke(dict(
         title=title, data=datas, axisYTitle="论文数量", axisXTitle=count_on, height=1200, width=1200
     ))
-    meta = json.loads(call_result)
-    # 避免长 base64 导致上下文膨胀：优先返回本地文件的 file:// 链接，其次回退到原有 URL
-    png_path = meta.get("file_path_png")
-    figure_ref = (f"file://{png_path}" if png_path else (meta.get("url_png") or ""))
-    return figure_ref, items
+    # 图表工具统一返回字典结构，包含键 "png_path"
+    try:
+        call_result = json.loads(call_result)
+    except json.JSONDecodeError:
+        logging.error(f"图表工具返回的结果不是JSON格式：{call_result}")
+        return "", items
+    png_path = call_result.get("png_path") if isinstance(call_result, dict) else ""
+    return png_path, items
 
 
 async def _translate_figure(config: RunnableConfig, target_lang: str,

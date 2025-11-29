@@ -306,6 +306,13 @@ Return your answer strictly following this JSON structure:
             await self._initial_ingest_for_conference(conf_id, req, reporter)
             return
 
+        # Before incremental ingestion: retry unfinished docs if any
+        if kb is not None:
+            try:
+                await self._knowledge.retry_unfinished_docs(kb.kb_id, reporter=reporter)
+            except Exception:
+                logging.exception("Retry unfinished documents failed; continue with incremental ingestion")
+
         # Incremental ingestion path
         await self._incremental_ingest_for_conference(kb, conf_id, req, reporter)
         return

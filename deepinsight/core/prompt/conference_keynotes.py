@@ -338,7 +338,7 @@ final_report_outline_generation_prompt = r"""
     ```
     # 学术会议 Keynotes 分析报告大纲
 
-    ## 1. Keynote 1 分析：{Keynote主题名称}
+    ## 1. Keynote 1 分析：(Keynote主题名称)
 
     ### 1.1 演讲嘉宾
     - 姓名、所属机构、主要研究方向、学术影响力
@@ -358,7 +358,7 @@ final_report_outline_generation_prompt = r"""
     - 相关研究方向或技术可应用的场景  
     - 可供借鉴的创新思维、合作机会或战略启发  
 
-    ## 2. Keynote 2 分析：{Keynote主题名称}
+    ## 2. Keynote 2 分析：(Keynote主题名称)
     （结构同上）
     ```
 
