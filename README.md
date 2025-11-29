@@ -42,12 +42,8 @@ poetry run alembic upgrade head
   - 生成知识库：`deepinsight conference generate --name "ICLR 2025" --files-src ./path/to/files`
   
 - 深度研究助手（research）
-  - 启动会话：`deepinsight research start`
-  - 指定主题：`deepinsight research start --topic "人工智能发展趋势"`
-  - 设置深度：`deepinsight research start --depth deep`
-  - 批处理模式：`deepinsight research start --mode batch`
-  - 查看历史：`deepinsight research history --limit 20`
-  - 导出结果：`deepinsight research export <session_id> --format markdown --output /path/to/report.md`
+  - 启动研究：`deepinsight research start --topic "人工智能发展趋势"`
+  - 查看帮助：`deepinsight research --help`
 
 提示：可通过环境变量 `DEEPINSIGHT_CONFIG` 指定配置文件路径（默认 `./config.yaml`）。
 

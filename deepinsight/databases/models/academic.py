@@ -10,6 +10,7 @@ class Author(Base):
     __tablename__ = "author"
 
     author_id = Column(Integer, primary_key=True, autoincrement=True)
+    conference_id = Column(Integer, nullable=False)
     author_name = Column(String(100), nullable=False)
     email = Column(String(255))
     affiliation = Column(String(255))
@@ -44,7 +45,7 @@ class Paper(Base):
 
     paper_id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String(255), nullable=False)
-    conference_id = Column(Integer)  # 直接存储ID，不使用ForeignKey
+    conference_id = Column(Integer, nullable=False)  # 直接存储ID，不使用ForeignKey
     publication_year = Column(Integer)
     abstract = Column(Text)
     keywords = Column(String(255))
@@ -59,8 +60,8 @@ class PaperAuthorRelation(Base):
     __tablename__ = "paper_author_relation"
 
     relation_id = Column(Integer, primary_key=True, autoincrement=True)
-    paper_id = Column(Integer)  # 直接存储ID
-    author_id = Column(Integer)  # 直接存储ID
+    paper_id = Column(Integer, nullable=False)  # 直接存储ID
+    author_id = Column(Integer, nullable=False)  # 直接存储ID
     author_order = Column(Integer, nullable=False)
     is_corresponding = Column(Boolean, default=False, nullable=False)
     created_at = Column(TIMESTAMP, default=datetime.now)

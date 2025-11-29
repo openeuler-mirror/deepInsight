@@ -10,9 +10,12 @@
 from __future__ import annotations
 
 import operator
-from typing import Any, Dict
+from typing import Any, Dict, List
+import logging
+from pydantic import BaseModel
+import yaml
 
-from deepinsight.core.types.graph_config import ResearchConfig
+from deepinsight.core.types.graph_config import ResearchConfig, ExpertDef
 
 
 def parse_research_config(config: Dict[str, Any]) -> ResearchConfig:
@@ -48,4 +51,29 @@ def dict_merge_reducer(
     for k, v in update.items():
         newd[k] = v
     return newd
-    
+
+
+def load_expert_config(expert_config_path: str) -> List[ExpertDef]:
+    try:
+        with open(expert_config_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except FileNotFoundError:
+        logging.warning(f"Expert config file not found: {expert_config_path}")
+        return []
+    except Exception as e:
+        logging.error(f"Unexpected error reading expert config: {e}")
+        raise
+
+    if not data:
+        logging.info("Expert config file is empty.")
+        return []
+
+    if not isinstance(data, list):
+        logging.warning("Expert config should be a list — ignoring invalid format.")
+        return []
+
+    try:
+        return [ExpertDef(**item) for item in data]
+    except Exception as e:
+        logging.error(f"Failed to initialize Expert objects: {e}")
+        return []

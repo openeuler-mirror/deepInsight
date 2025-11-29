@@ -8,9 +8,11 @@ from __future__ import annotations
 import json
 import logging
 import traceback
-from typing import List, Optional, Set, Tuple, Annotated
+from typing import List, Optional, Set, Tuple, Annotated, Dict, NamedTuple
 from langchain_core.messages import HumanMessage
-from pydantic import RootModel, Field
+from pydantic import RootModel, Field, ValidationError
+from os.path import abspath, dirname, join as join_path
+import yaml
 
 from sqlalchemy import and_, bindparam, delete, null, or_, select, update
 from sqlalchemy.orm import Session
@@ -42,11 +44,27 @@ from deepinsight.service.schemas.paper_extract import (
     AuthorInfo,
     PaperMeta,
 )
+from deepinsight.service.conference.ror import RORClient
 
 
 class PaperParseException(RuntimeError):
     """Exception that is safe to surface to clients."""
 
+
+class _AuthorIdentify(NamedTuple):
+    name: str
+    email: str
+
+    @staticmethod
+    def from_author(author: AuthorMeta):
+        """Load identify from Author object in PaperMeta."""
+        return _AuthorIdentify(author.name, author.email)
+
+
+class _Authorship(NamedTuple):
+    author_id: int
+    index: int
+    is_corresponding: bool
 
 class PaperExtractionService:
     """Service to extract paper metadata and persist to the database.
@@ -59,6 +77,21 @@ class PaperExtractionService:
     def __init__(self, config: Config):
         self._db = Database(config.database)
         self._config = config
+
+    @staticmethod
+    def _create_authorship(paper_meta: PaperMeta, author_ids: dict[_AuthorIdentify, int]) -> list[_Authorship]:
+        deduplication_set: set[_AuthorIdentify] = set()
+        ret = []
+        for author in paper_meta.all_authors:
+            identify = _AuthorIdentify.from_author(author)
+            if identify in deduplication_set:
+                continue
+            deduplication_set.add(identify)
+            ret.append(
+                _Authorship(author_id=author_ids[identify], index=len(deduplication_set),
+                            is_corresponding=author in paper_meta.author_info.corresponding_authors)
+            )
+        return sorted(ret, key=lambda item: item.index)
 
     async def extract_and_store(self, req: ExtractPaperMetaRequest) -> ExtractPaperMetaResponse:
         """Extract paper metadata from Markdown and persist.
@@ -167,14 +200,15 @@ class PaperExtractionService:
         """Create paper and author relations, or update existing paper authors if needed.
         Returns the `paper_id` and ordered `author_ids`.
         """
-        author_ids = self._get_or_create_authors(paper_meta)
-        if self._check_paper_exist_and_update(conference_id, paper_meta.paper_title, author_ids):
+        author_ids = self._get_or_create_authors(conference_id, paper_meta)
+        authorship_list = self._create_authorship(paper_meta, author_ids)
+        if self._check_paper_exist_and_update(conference_id, paper_meta, authorship_list):
             # fetch paper_id for response
             with self._db.get_session() as session:
                 paper = session.query(Paper).filter(
                     and_(Paper.conference_id == conference_id, Paper.title == paper_meta.paper_title)
                 ).first()
-                return paper.paper_id, author_ids  # type: ignore
+                return paper.paper_id, [authorship.author_id for authorship in authorship_list]
 
         # Persist new paper
         paper = Paper(
@@ -184,93 +218,109 @@ class PaperExtractionService:
             abstract=paper_meta.abstract,
             keywords=",".join(paper_meta.keywords or []),
             topic=paper_meta.topic,
-            author_ids=json.dumps(author_ids),
+            author_ids=json.dumps([authorship.author_id for authorship in authorship_list]),
         )
         try:
             with self._db.get_session() as session:  # type: Session
                 session.add(paper)
                 session.flush()
-                session.add_all(
-                    PaperAuthorRelation(paper_id=paper.paper_id, author_id=id_, author_order=index)
-                    for index, id_ in enumerate(author_ids, 1)
-                )
+                if authorship_list:
+                    session.add_all(
+                        PaperAuthorRelation(paper_id=paper.paper_id, author_id=authorship.author_id, 
+                            author_order=authorship.index, is_corresponding=authorship.is_corresponding
+                        )
+                        for authorship in authorship_list
+                    )
                 session.commit()
-                return paper.paper_id, author_ids
+                return paper.paper_id, [authorship.author_id for authorship in authorship_list]
         except Exception as e:
             logging.error(f"Failed to store paper metadata {paper} with {type(e).__name__}: {e}", exc_info=True)
             raise PaperParseException("Failed to persist paper metadata") from e
 
-    def _get_or_create_authors(self, paper: PaperMeta) -> List[int]:
-        """Ensure all authors exist; create missing ones; return ordered IDs with deduplication."""
-        dedup = set()
-        authors: List[AuthorMeta] = []
-        for a in paper.all_authors:
-            if a is None or not any((a.name, a.email, a.address)):
-                continue
-            dumped = a.model_dump_json()
-            if dumped in dedup:
-                continue
-            dedup.add(dumped)
-            authors.append(a)
+    def _get_or_create_authors(self, conference_id: int, paper: PaperMeta) -> Dict[_AuthorIdentify, int]:
+        """Get if exist and create otherwise for every author in `paper.author_info`.
 
-        if not authors:
-            raise PaperParseException("No author information extracted from paper")
+        Returns a dict from (author_name, author_email) to author ID with deduplication."""
+        deduplication_map = {}
+        
+        author_list = []
+        # remove empty and duplicated authors.
+        for author in paper.all_authors:
+            identify = _AuthorIdentify.from_author(author)
+            if identify in deduplication_map:
+                if author != deduplication_map[identify]:
+                    logging.warning(f"{author!r} has the same name and email with {deduplication_map[identify]!r} in "
+                                    f"the same paper {paper.paper_title!r} with different content. Only the later one"
+                                    " selected.")
+                continue
+            deduplication_map[identify] = author
+            author_list.append(author)
+
+        if not author_list:
+            logging.warning(f"Not found any author in paper {paper.paper_title!r}.")
+            return {}
 
         max_retry = 5
+
         while max_retry:
             max_retry -= 1
-            ids = self._get_or_create_authors_single(authors)
-            if ids:
-                return ids
-        logging.error("Too many conflicts while creating authors")
-        raise RuntimeError("Too many conflicts while creating authors")
+            author_ids = self._get_or_create_authors_single(author_list, conference_id)
+            if author_ids:
+                return author_ids
+        logging.error("Try create new author with too many conflicts.")
+        raise RuntimeError("Try create new author with too many conflicts.")
 
-    def _get_or_create_authors_single(self, author_list: List[AuthorMeta]) -> List[int]:
-        names = [a.name for a in author_list]
-        emails = [a.email for a in author_list]
-        lookup = {(a.name, a.email): a for a in author_list}
+    def _get_or_create_authors_single(self, author_list: list[AuthorMeta], conf_id: int) -> dict[_AuthorIdentify, int]:
+        author_names = [author.name for author in author_list]
+        author_emails = [author.email for author in author_list]
+        author_lookup_table = {_AuthorIdentify.from_author(author): author for author in author_list}
         with self._db.get_session() as session:  # type: Session
-            rows = session.execute(
+            author_rows = session.execute(
                 select(AuthorTable.author_id, AuthorTable.author_name, AuthorTable.email)
-                .where(and_(AuthorTable.author_name.in_(names), AuthorTable.email.in_(emails)))
+                .where(and_(
+                    AuthorTable.conference_id == conf_id,
+                    AuthorTable.author_name.in_(author_names),
+                    AuthorTable.email.in_(author_emails)
+                ))
             ).all()
-            existing = {(name, email): id_ for (id_, name, email) in rows}
-            if set(lookup).issubset(existing):
-                self._update_existing_authors(session, lookup, existing)
-                return [existing[k] for k in lookup]
+            existing_authors: dict[_AuthorIdentify, int] = {
+                _AuthorIdentify(name, email): id_ for
+                (id_, name, email) in author_rows
+                if _AuthorIdentify(name, email) in author_lookup_table
+            }
+            if set(author_lookup_table) == set(existing_authors):
+                self._update_existing_authors(session, author_lookup_table, existing_authors)
+                return existing_authors
 
-            to_create = []
-            for key in set(lookup) - set(existing):
-                a = lookup[key]
-                to_create.append(
-                    AuthorTable(
-                        author_name=a.name,
-                        email=a.email,
-                        affiliation=a.affiliation,
-                        affiliation_country=a.affiliation_country,
-                        affiliation_city=a.affiliation_city,
-                    )
-                )
+            need_creates = []
+            for key in set(author_lookup_table) - set(existing_authors):
+                new_author = author_lookup_table[key]
+                need_creates.append(AuthorTable(conference_id=conf_id,
+                                                author_name=new_author.name, email=new_author.email,
+                                                affiliation=new_author.affiliation,
+                                                affiliation_country=new_author.affiliation_country,
+                                                affiliation_city=new_author.affiliation_city))
 
-            try:
-                session.add_all(to_create)
+            try:  # create with retry
+                session.add_all(need_creates)
                 session.commit()
             except IntegrityError:
-                logging.info("Author creation conflict, retrying...")
-                return []
+                logging.info("Try create new author with conflict, retry...")
+                return {}
             except Exception as e:
-                logging.error(f"Unexpected error creating authors: {type(e).__name__}: {e}", exc_info=True)
+                logging.error(f"Try query author info with {type(e).__name__}, canceled: {e}", exc_info=True)
                 raise
 
-            existing.update({(a.author_name, a.email): a.author_id for a in to_create})
-            self._update_existing_authors(session, lookup, existing)
-        return [existing[k] for k in lookup]
+            existing_authors.update({_AuthorIdentify(author.author_name, author.email): author.author_id
+                                     for author in need_creates})
+            self._update_existing_authors(session, author_lookup_table, existing_authors)
+        return existing_authors
 
     @staticmethod
     def _update_existing_authors(
         session: Session,
-        author_lookup_table: dict[tuple[str, Optional[str]], AuthorMeta],
-        existing_authors: dict[tuple[str, Optional[str]], int],
+        author_lookup_table: dict[_AuthorIdentify, AuthorMeta],
+        existing_authors: dict[_AuthorIdentify, int],
     ) -> None:
         """Update null/empty affiliation fields for existing authors."""
         authors = [(author_lookup_table[key], id_) for (key, id_) in existing_authors.items()]
@@ -301,29 +351,41 @@ class PaperExtractionService:
         session.commit()
         logging.info(f"Updated affiliation information for about {len(authors)} authors")
 
-    def _check_paper_exist_and_update(self, conference_id: int, title: str, new_author_ids: List[int]) -> bool:
-        """Return True if an existing paper was found (and updated if needed)."""
+    def _check_paper_exist_and_update(self, conference_id: int, paper_meta: PaperMeta,
+                                      new_authorship: list[_Authorship]) -> bool:
+        """Return `True` if it is an existing paper.
+
+        What's more:
+        - If the given authorship from `new_authorship` is different from the existing one on DB, update them;
+        - If the given topic is different from the existing topic on DB, update topic.
+        """
         with self._db.get_session() as session:  # type: Session
-            paper: Optional[Paper] = (
-                session.query(Paper)
-                .filter(and_(Paper.conference_id == conference_id, Paper.title == title))
-                .first()
-            )
+            paper: Paper | None = session.query(Paper).filter(
+                and_(Paper.conference_id == conference_id, Paper.title == paper_meta.paper_title)
+            ).first()
             if paper is None:
                 return False
-            authors_in_db = (
-                session.execute(select(PaperAuthorRelation.author_id).where(PaperAuthorRelation.paper_id == paper.paper_id))
-                .scalars()
-                .all()
+            authorship_in_db: Iterable[PaperAuthorRelation] = session.execute(
+                select(PaperAuthorRelation)
+                .where(PaperAuthorRelation.paper_id == paper.paper_id)  # type: ignore
+            ).scalars().all()
+            existing_authorship = set(
+                _Authorship(item.author_id, item.author_order, item.is_corresponding) for item in authorship_in_db
             )
-            if set(authors_in_db) == set(new_author_ids):
-                return True
-            session.execute(delete(PaperAuthorRelation).where(PaperAuthorRelation.paper_id == paper.paper_id))
-            session.add_all(
-                PaperAuthorRelation(paper_id=paper.paper_id, author_id=id_, author_order=index)
-                for index, id_ in enumerate(new_author_ids, 1)
-            )
-            session.commit()
+            if existing_authorship != set(new_authorship):
+                session.execute(
+                    delete(PaperAuthorRelation).where(PaperAuthorRelation.paper_id == paper.paper_id)  # type: ignore
+                )
+                if new_authorship:
+                    session.add_all(
+                        PaperAuthorRelation(paper_id=paper.paper_id, author_id=item.author_id, author_order=item.index,
+                                            is_corresponding=item.is_corresponding)
+                        for item in new_authorship
+                    )
+                session.commit()
+            if paper.topic != paper_meta.topic:
+                paper.topic = paper_meta.topic
+                session.commit()
             return True
 
     # --------------------- Parsing with LLM ---------------------
@@ -407,7 +469,28 @@ class PaperExtractionService:
             raise PaperParseException("Failed to parse LLM structured output")
 
         # 机构矫正统一通过 Agent，重试逻辑与论文解析一致
-        llm_meta = await self._correct_affiliation_names(llm_meta, chat_model)
+        llm_meta:PaperMeta = await self._correct_affiliation_names(llm_meta, chat_model)
+
+        has_empty = False
+        if llm_meta.author_info.first_author is not None:
+            if not (llm_meta.author_info.first_author.name or llm_meta.author_info.first_author.email):
+                has_empty = True
+                llm_meta.author_info.first_author = None
+        for author_list in (
+            llm_meta.author_info.co_first_authors,
+            llm_meta.author_info.middle_authors,
+            llm_meta.author_info.last_authors,
+            llm_meta.author_info.corresponding_authors,
+        ):
+            for author in author_list[:]:
+                if author.name or author.email:
+                    continue
+                author_list.remove(author)
+                has_empty = True
+        if has_empty:
+            logging.info(f"paper parsed result (removed empty): {llm_meta}")
+
+        llm_meta = await self._unify_country_name(chat_model, llm_meta)
         return llm_meta
 
     class _AffiliationMap(RootModel):
@@ -447,12 +530,15 @@ class PaperExtractionService:
             )
             logging.error(traceback.format_exc())
             return llm_meta
-
+        
+        # Ensure mapping is a plain dict before downstream processing
         if isinstance(mapping, self._AffiliationMap):
             mapping = mapping.root
-        else:
+        elif not isinstance(mapping, dict):
             logging.warning(f"Affiliation correction output is not a valid map (type={type(mapping).__name__})")
             return llm_meta
+
+        mapping = await self._fix_by_ror(mapping, chat_model)
 
         for author in llm_meta.all_authors:
             try:
@@ -464,6 +550,142 @@ class PaperExtractionService:
                 logging.warning(f"Affiliation correction parse failed: {type(parse_err).__name__}: {parse_err}")
         return llm_meta
 
+    async def _fix_by_ror(self, mapping: dict[str, str], llm: BaseChatModel) -> dict[str, str]:
+        to_fix_by_ror = set(mapping.values())
+        client = RORClient(verify_ssl=False)
+        fixed_by_ror = {name: await client.match_one_or_origin(name, llm=llm) for name in to_fix_by_ror}
+        log_str = "\n".join(f"{origin!r} => {mapping[origin]!r} => {fixed_by_ror[mapping[origin]]!r}" for origin in mapping)
+        logging.info(f"Affiliation mapping of this paper:\n{log_str}")
+        return {origin: fixed_by_ror[llm_fixed] for origin, llm_fixed in mapping.items()}
+
+
+    async def _unify_country_name(self, chat_model: BaseChatModel, paper_meta: PaperMeta) -> PaperMeta:
+        to_correct: set[str] = set()
+
+        for author in paper_meta.all_authors:
+            if (not author.affiliation_country) or (author.affiliation_country in _COUNTRY_NAME_SET):
+                continue
+            if author.affiliation_country in _COUNTRY_NAME_MAP:
+                author.affiliation_country = _COUNTRY_NAME_MAP[author.affiliation_country]
+                continue
+            to_correct.add(author.affiliation_country)
+        if not to_correct:  # unmatch may because of country is null or empty
+            return paper_meta
+        corrected = await self._unify_country_name_by_llm(chat_model, to_correct)
+        for author in paper_meta.all_authors:
+            if author.affiliation_country in corrected:
+                author.affiliation_country = corrected[author.affiliation_country]
+        return paper_meta
+
+
+    async def _unify_country_name_by_llm(self, chat_model: BaseChatModel, to_correct: set[str]) -> dict[str, str]:
+        to_correct = set(to_correct)
+        retry_count = 3
+        corrected = dict()
+        for _ in range(retry_count):
+            prompt = (PromptTemplate(template=_COUNTRY_FIX_PROMPT, input_variables=["context"])
+                    .format_prompt(context=json.dumps(list(to_correct))).to_string())
+            try:
+                llm_output = (await chat_model.ainvoke(prompt)).content
+            except Exception as e:
+                logging.error(f"修正国家名称时，调用LLM发生异常{type(e).__name__}: {e}", exc_info=True)
+                continue
+            left = llm_output.find("{")
+            right = llm_output.rfind("}")
+            if left == -1 or right == -1:
+                logging.error(f"LLM生成的{llm_output!r}不包含完整的json对象")
+                continue
+            maybe_json_str = llm_output[left:right + 1]
+            try:
+                correcting_map = _StrDict.model_validate_json(maybe_json_str).root
+            except ValidationError:
+                logging.error(f"修正国家名称时，LLM生成的映射{maybe_json_str!r}无法通过JSON校验。LLM输出为：{llm_output!r}",
+                            exc_info=True)
+                continue
+
+            # check mapping legal
+            if to_correct == set(correcting_map.keys()) and all(v in _COUNTRY_NAME_SET for v in correcting_map.values()):
+                corrected.update(correcting_map)
+                return corrected
+            for old, new in correcting_map.items():
+                if (old not in to_correct) or (new not in _COUNTRY_NAME_SET):
+                    continue
+                to_correct.remove(old)
+                corrected[old] = new
+            if not to_correct:
+                return corrected
+
+        logging.warning(f"Attempting to correct these country names has reached max retry limit: {to_correct}. Skip.")
+        for v in to_correct:
+            corrected[v] = v
+        return corrected
+
+class _Iso31661File(RootModel):
+    class _Line(NamedTuple):
+        alpha2: Annotated[str, Field(pattern=r"^[A-Z]{2,2}$")]
+        alpha3: Annotated[str, Field(pattern=r"^[A-Z]{3,3}$")]
+        short_name: str
+
+    root: list[_Line]
+
+class _StrDict(RootModel):
+    root: dict[str, str]
+
+def _create_country_map():
+    with open(join_path(dirname(abspath(__file__)), "iso-3166-1.yaml")) as f:
+        origin_object = yaml.safe_load(f)
+    iso3166_1_table = _Iso31661File.model_validate(origin_object).root
+    result_map = {item.short_name: item.short_name for item in iso3166_1_table}
+    result_map.update({item.alpha2: item.short_name for item in iso3166_1_table})
+    result_map.update({item.alpha3: item.short_name for item in iso3166_1_table})
+    result_map.update({  # special cases
+        "United States": "United States of America",
+        "UK": "United Kingdom",
+        "North Korea": "Korea, Democratic People's Republic of",
+        "South Korea": "Korea, Republic of"
+    })
+    return result_map, set(item.short_name for item in iso3166_1_table)
+
+
+_COUNTRY_NAME_MAP, _COUNTRY_NAME_SET = _create_country_map()
+_COUNTRY_NAME_MAP: dict[str, str]
+_COUNTRY_NAME_SET: set[str]
+_COUNTRY_FIX_PROMPT = """
+## Role
+You are an country name correction agent familiar with ISO 3166-1 standard.  
+Your task is to correct each country name in the given list to the standardized names as specified in ISO 3166-1 and \
+represent the mapping between the original and corrected names using a JSON object.
+
+## Task
+Correct each given country popular name into ISO 3166-1 standard short name using comma format.
+You need to ensure that every output always uses the names specified in the ISO 3166-1 standard.
+for example, you should output "Korea, Republic of" instead of "Korea (Republic of)" or "Republic of Korea" or \
+anything else for a input "South Korea".
+Return a json object mapping from input common name to the corrected name in ISO 3166-1 short name (comma format).
+
+## Context
+The country names to be corrected:
+{context}
+
+## Correction Guidelines
+
+## Output Format
+Return your answer strictly following JSON object structure
+
+---
+
+## Example
+
+### Input
+["Korea (Republic of)", "Hong Kong, SAR"]
+
+### Output
+{{
+    "Korea (Republic of)": "Korea, Republic of",
+    "Hong Kong, SAR": "Hong Kong",
+    "UK": "United Kingdom"
+}}
+"""
 
 _METADATA_EXTRACT_PROMPT = """
 ## Role
@@ -539,13 +761,17 @@ Return your answer strictly following this JSON structure:
 _FIX_AFFILIATION_SYSTEM_PROMPT_TEXT = """
 ## Role
 You are an organization name verification agent familiar.  
-Your task is to correct each organization name (may with department info) into their official name \
+Your task is to correct each organization name (may with department info) into their universal and human friendly name \
 (organization name only) in English.
 
-## Task in 3 steps
-1. Removing any regional division information and department information.
-2. Correct each string after step 1 into an official organization name.
-3. Return a json object mapping from input to the corrected name.
+## Task in 5 steps
+1. Expand the abbreviations into the most commonly used organizational names at academic conferences.
+2. Removing any regional division information and department information. When this organization is part of \
+the U.S.State University System, do not remove its regional division.
+3. Correct each string after step 1 into an official organization name.
+4. Return a json object mapping from input to the corrected name.
+5. Removing corporate legal structure like "Ltd.", "Corp.", "Inc" for companies and nationality information \
+of multinational corporations.
 
 You need to ensure that every output always is an Academy / University / Institute / Laboratory / Company name \
 which is a registered full legal name in English, excluding any regional division information and department \
@@ -557,19 +783,22 @@ University" because the input includes information about institutions and depart
 institution name is needed.
 - You should output "The Chinese University of Hong Kong" for the input "The Chinese University of Hong Kong, Shenzhen"\
   because "Shenzhen" is regional division information which is not needed.
-- You should output "Huawei Technologies Co., Ltd." instead of "Huawei" or anything else for an input "Huawei Tech. \
-  (Shenzhen)", because "Shenzhen" is a regional division information which is not needed and "Huawei Tech." after \
-  the removing is not the legal English name of it registered. \
-  Similarly, for "Synopsys Inc." and "Synopsys Korea", you should output "Synopsys, Inc." because that is its \
-  registered name.
+- You should output "Huawei Technologies" or "Huawei" instead of "Huawei Technologies Co., Ltd." or anything else for \
+  an input "Huawei Tech. Co.,Ltd. (Shenzhen)", because "Shenzhen" is a regional division information which is not \
+  needed and "Co.,Ltd." is corporate legal structure which is no needed.
+  Similarly, for "Synopsys Inc." and "Synopsys Korea", you should output "Synopsys" because that is its \
+  human-friendly name without corporate legal structure and nationality information.
+- You should return "University of California, Los Angeles" for input "University of California, Los Angeles" because
+  this organization belongs to US State University System (keep its regional division).
 
 
 Be carefully that your output **should be a valid json**.
 
 ## Correction Guidelines
-- Removing department (including schools) info and regional division info before checking if it is the legal English \
-  name of the organization registered;
-- Return full legal English name of the organization registered;
+- Removing department (including schools) info and regional division info before checking if it is the common English\
+ name of the organization without unnecessary parts. Keep regional division of all organizations belongs to US State\
+ University System;
+- Return full common English name of the organization;
 - Using searching tools if necessary;
 
 ## Output Format
@@ -580,12 +809,14 @@ Return your answer strictly following JSON object structure
 ## Example
 
 ### Input
-["University of California, San Diego", "imec", "Ulsan National Institute of Science and Technology (UNIST)"]
+["Harbin Institute of Technology (Shenzhen)", "University of California, San Diego", "imec", \
+"Ulsan National Institute of Science and Technology (UNIST)"]
 
 ### Output
-{
-    "University of California, San Diego": "University of California",
+{{
+    "Harbin Institute of Technology (Shenzhen)": "Harbin Institute of Technology",
+    "University of California, San Diego": "University of California, San Diego",
     "imec": "Interuniversity Microelectronics Centre",
     "Ulsan National Institute of Science and Technology (UNIST)": "Ulsan National Institute of Science and Technology"
-}
+}}
 """
