@@ -17,6 +17,7 @@ from deepinsight.service.rag.parsers.base import BaseDocumentParser
 from deepinsight.service.rag.types import LoaderOutput
 from deepinsight.service.schemas.rag import DocumentPayload
 from deepinsight.utils.file_storage import get_storage_impl
+from deepinsight.utils.file_storage.identify import KbDocImage
 
 
 class MineruVLParser(BaseDocumentParser):
@@ -29,9 +30,16 @@ class MineruVLParser(BaseDocumentParser):
         parse_result = await _parse_file_content(payload.filename, payload.binary_content)
 
         if parse_result.images:
-            await get_storage_impl().document_images_init_bucket(str(kb_id), exist_ok=True)
+            await get_storage_impl().object_init_bucket(KbDocImage(kb_id=kb_id), exist_ok=True)
             img_map_with_path = {f"images/{k}": v for k, v in parse_result.images.items()}
-            path_map = await get_storage_impl().document_images_store(str(kb_id), payload.doc_id, img_map_with_path)
+            directory = KbDocImage(kb_id=kb_id, doc_id=payload.doc_id)
+            await get_storage_impl().object_put(directory, img_map_with_path)
+            dir_uri = directory.uri_postfix()
+            if not dir_uri.endswith("/"):
+                dir_uri += "/"
+            path_map = {
+                k: dir_uri + k for k in img_map_with_path
+            }
             await _replace_image_link(
                 parse_result, path_map=path_map,
                 replace_alt_text=bool(self._config.enable_vl if self._config else True),

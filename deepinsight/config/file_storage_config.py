@@ -1,4 +1,5 @@
 """Configuration about how to store files referenced by Markdown text."""
+import os
 from enum import Enum
 from typing import Annotated, Any, ClassVar, Type
 
@@ -104,24 +105,14 @@ class ObsMappingConfig(_ConfigModel):
 
 
 class FileStorageConfig(_ConfigModel):
-    type: StorageType = StorageType.LOCAL
+    type: Annotated[
+        StorageType,
+        Field(default_factory=lambda: StorageType(os.getenv("STORAGE_TYPE") or StorageType.LOCAL))
+    ]
     s3: ConfigS3 | None = None
     local: Annotated[ConfigLocal | None, Field(default_factory=ConfigLocal)]
     remote_access: bool | ListenConfig = False
-    map_rule: Annotated[ObsMappingConfig, Field(default_factory=ObsMappingConfig)]
-
-    _REQUIRED_FIELD_MAP: ClassVar[dict[StorageType, str]] = {
-        StorageType.LOCAL: "local",
-        StorageType.S3_OBS: "s3"
-    }
 
     def model_post_init(self, context: Any, /) -> None:
         if self.remote_access is True:
             self.remote_access = ListenConfig()
-
-    @model_validator(mode="after")
-    def _check_configs(self):
-        required_config = self._REQUIRED_FIELD_MAP[self.type]
-        if getattr(self, required_config) is None:
-            raise ValueError(f"For storage type '{self.type}', config field '{required_config}' is required.")
-        return self

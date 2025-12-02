@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import urllib.parse
 from datetime import datetime
 
@@ -91,7 +92,16 @@ class S3CompatibleObsClient(BaseFileStorage):
 
     @classmethod
     def from_config(cls, config: Config) -> "S3CompatibleObsClient":
-        return cls(config=config.file_storage.s3, keymap=config.file_storage.map_rule)
+        s3_conf = config.file_storage.s3
+        if not s3_conf:
+            endpoint = os.getenv("S3_ENDPOINT")
+            ak = os.getenv("S3_AK")
+            sk = os.getenv("S3_SK")
+            if not all([endpoint, ak, sk]):
+                raise RuntimeError("For S3 storage, config file_storage.s3 or environ 'S3_ENDPOINT', 'S3_AK' and "
+                                   "'S3_SK' is necessary.")
+            s3_conf = ConfigS3(endpoint=endpoint, ak=ak, sk=sk)  # type: ignore
+        return cls(config=s3_conf)
 
     async def bucket_create(self, bucket: str, *, exist_ok: bool = False) -> bool:
         """Create a new bucket."""

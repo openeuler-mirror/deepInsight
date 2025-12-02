@@ -177,6 +177,8 @@ class MinerUOnlineClient(BaseLoader):
             response = await session.request(method, url=path,
                                              headers=headers,
                                              **args)
+            if response.status == 401:
+                raise RuntimeError(f"MinerU server rejects your API key, please check your account.")
             if response.status == 429:  # HTTP too many requests
                 raise RuntimeError("Too many request to MinerU")
             response.raise_for_status()
