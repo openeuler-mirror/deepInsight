@@ -11,6 +11,7 @@ from langchain_tavily import TavilySearch
 
 from deepinsight.core.tools.file_system import register_fs_tools, MemoryMCPFilesystem
 from deepinsight.core.utils.research_utils import parse_research_config
+from deepinsight.utils.db_schema_utils import get_db_models_source_markdown
 from deepinsight.core.utils.context_utils import DefaultSummarizationMiddleware
 
 # ----------------- 单篇论文解析函数 -----------------
@@ -40,19 +41,19 @@ def analyze_single_paper(paper_info: str, output_dir: str, config: RunnableConfi
             include_image_descriptions=True,
             search_depth="advanced",
         )
-        paper_analysis_prompt = rc.prompt_manager.get_prompt(
+        prompt_template = rc.prompt_manager.get_prompt(
                 name="paper_analysis_no_rag_prompt",
                 group=rc.prompt_group,
-        ).format(output_dir=output_dir)
+        ).format(output_dir=output_dir, db_models_description=get_db_models_source_markdown())
 
         tools.append(tavily_instance)
         if "ragflow" in config["configurable"]:
             # knowledge_tool = KnowledgeTool()
             # tools.append(knowledge_tool.knowledge_retrieve)
-            paper_analysis_prompt = rc.prompt_manager.get_prompt(
+            prompt_template = rc.prompt_manager.get_prompt(
                 name="paper_analysis_prompt",
                 group=rc.prompt_group,
-            ).format(output_dir=output_dir)
+            ).format(output_dir=output_dir, db_models_description=get_db_models_source_markdown())
 
         from deepagents import create_deep_agent
         # Create the deep agent
@@ -60,7 +61,7 @@ def analyze_single_paper(paper_info: str, output_dir: str, config: RunnableConfi
         agent = create_deep_agent(
             model=rc.default_model,
             tools=tools,
-            system_prompt=paper_analysis_prompt,
+            system_prompt=prompt_template,
         )
         input_messages = [
             {

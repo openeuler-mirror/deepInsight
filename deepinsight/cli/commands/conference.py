@@ -28,7 +28,8 @@ from deepinsight.service.schemas.conference import (
 
 from deepinsight.service.research.research import ResearchService
 from deepinsight.service.schemas.research import ResearchRequest, SceneType, PPTGenerateRequest
-from deepinsight.cli.commands.stream import run_research_and_save_report_sync
+from deepinsight.service.schemas.streaming import Message, MessageContent, MessageContentType
+from deepinsight.cli.commands.stream import run_research_and_save_report_sync, make_report_filename
 from deepinsight.core.types.graph_config import SearchAPI
 
 
@@ -55,6 +56,8 @@ class ConferenceCommand:
             return self._handle_remove(conf_args)
         elif conf_args.subcommand == 'generate':
             return self._handle_generate(conf_args)
+        elif conf_args.subcommand == 'qa':
+            return self._handle_qa(conf_args)
         else:
             parser.print_help()
             return 1
@@ -62,7 +65,15 @@ class ConferenceCommand:
     def _create_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
             prog='deepinsight conference',
-            description='Conference information management (generate/list/delete)'
+            description='Conference information management (list/remove/generate/qa)',
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog='''\
+Examples:
+  deepinsight conference list
+  deepinsight conference generate --name "ICLR 2025" --files-src ./docs
+  deepinsight conference qa --name "ICLR 2025" --files-src ./docs --question "今年最佳论文有哪些创新点？"
+  deepinsight conference remove --id 12
+            '''
         )
         subparsers = parser.add_subparsers(dest='subcommand', help='Operations')
 
@@ -87,6 +98,10 @@ class ConferenceCommand:
         # Note: --files-src replaces the previous --docs-src for clarity.
         generate_parser.add_argument('--name', '-n', required=True, help='Conference name including year, e.g., "ICLR 2025"')
         generate_parser.add_argument('--files-src', '-f', required=True, help='User-provided source directory of files to ingest')
+        qa_parser = subparsers.add_parser('qa', help='Conference QA based on ingested documents')
+        qa_parser.add_argument('--name', '-n', required=True, help='Conference name including year, e.g., "ICLR 2025"')
+        qa_parser.add_argument('--files-src', '-f', required=True, help='User-provided source directory of files to ingest')
+        qa_parser.add_argument('--question', '-q', required=True, help='User question to answer against the conference knowledge base')
         return parser
 
     def _get_config(self):
@@ -182,8 +197,13 @@ class ConferenceCommand:
                 service=research_service,
                 request=ResearchRequest(
                     conversation_id=conv_id,
-                    query=query,
-                    scene_type=SceneType.CONFERENCE,
+                    messages=[
+                        Message(
+                            content=MessageContent(text=query),
+                            content_type=MessageContentType.plain_text,
+                        )
+                    ],
+                    scene_type=SceneType.CONFERENCE_RESEARCH,
                     allow_user_clarification=False,
                     allow_edit_research_brief=False,
                     allow_edit_report_outline=False,
@@ -215,4 +235,65 @@ class ConferenceCommand:
             return 0
         except Exception as e:
             logger.exception("✗ 生成失败")
+            return 1
+
+    def _handle_qa(self, args: argparse.Namespace) -> int:
+        try:
+            service = self._get_service()
+            name = args.name.strip()
+            m = re.search(r'(19|20)\d{2}', name)
+            if not m:
+                raise ValueError('No year detected in name, please include a four-digit year like 2025')
+            year = int(m.group(0))
+            full_name = name
+            base_name_no_year = re.sub(r'[\s\(\[\{,]*' + m.group(0) + r'[\s\)\]\},]*', ' ', name).strip()
+            if not base_name_no_year:
+                base_name_no_year = name.replace(m.group(0), '').strip()
+            short_name = None
+            compact = re.sub(r'\s+', '', base_name_no_year)
+            if compact.isupper() and 2 <= len(compact) <= 12:
+                short_name = compact
+            req = ConferenceParseDocsRequest(
+                short_name=short_name,
+                full_name=full_name,
+                year=year,
+                docs_src_dir=args.files_src,
+            )
+            reporter = RichProgressReporter(console=get_console())
+            reporter.info("Parsing documents. This may take a while...")
+            asyncio.run(service.ensure_conference_and_ingest_docs(req, reporter=reporter))
+            research_service = ResearchService(self._get_config())
+            base = (short_name or full_name).strip()
+            slug = re.sub(r"\s+", "-", base)
+            conv_id = f"qa-{slug}-{year}"
+            query = args.question.strip()
+            # 生成带有问题前缀与时间戳的唯一文件名，避免同会议不同问题的报告相互覆盖
+            result_stem = make_report_filename(
+                question=query,
+                expert=f"conference_qa_{(short_name or base_name_no_year).strip()}_{year}",
+            )
+            run_research_and_save_report_sync(
+                service=research_service,
+                request=ResearchRequest(
+                    conversation_id=conv_id,
+                    messages=[
+                        Message(
+                            content=MessageContent(text=query),
+                            content_type=MessageContentType.plain_text,
+                        )
+                    ],
+                    scene_type=SceneType.CONFERENCE_QA,
+                    allow_user_clarification=False,
+                    allow_edit_research_brief=False,
+                    allow_edit_report_outline=False,
+                    search_api=[SearchAPI.TAVILY],
+                ),
+                result_file_stem=result_stem,
+                gen_pdf=True,
+                live=Live(console=get_console()),
+            )
+            print("✓ 问答完成（Markdown/PDF）")
+            return 0
+        except Exception as e:
+            logger.exception("✗ 问答失败")
             return 1

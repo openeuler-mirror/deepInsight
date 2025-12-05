@@ -18,6 +18,7 @@ from rich import get_console
 
 from deepinsight.cli.commands.research import ResearchCommand
 from deepinsight.cli.commands.conference import ConferenceCommand
+from deepinsight.cli.commands.api import ApiCommand
 
 dotenv.load_dotenv(override=True)
 
@@ -52,6 +53,7 @@ class DeepInsightCLI:
             
             'research': ResearchCommand(),
             'conference': ConferenceCommand(),
+            'api': ApiCommand(),
         }
     
     def _create_parser(self) -> argparse.ArgumentParser:
@@ -64,6 +66,7 @@ class DeepInsightCLI:
 Examples:
   deepinsight conference list
   deepinsight conference generate --name "ICLR 2025" --files-src ./docs
+  deepinsight conference qa --name "ICLR 2025" --files-src ./docs --question "今年最佳论文有哪些创新点？"
   deepinsight research start
   deepinsight --version
 
@@ -118,6 +121,18 @@ For more information on a specific command, run:
             nargs=argparse.REMAINDER,
             help='Arguments for conference subcommands (parsed by ConferenceCommand)'
         )
+
+        # API server command
+        api_parser = subparsers.add_parser(
+            'api',
+            help='Start backend API server',
+            description='Start DeepInsight backend API service'
+        )
+        api_parser.add_argument(
+            'args',
+            nargs=argparse.REMAINDER,
+            help='Arguments for api subcommands (parsed by ApiCommand)'
+        )
         return parser
 
     def run(self, args: Optional[List[str]] = None) -> int:
@@ -137,6 +152,11 @@ For more information on a specific command, run:
                 rest = getattr(parsed_args, 'args', [])
                 if not rest or '--help' in rest or '-h' in rest:
                     ResearchCommand()._create_parser().print_help()
+                    return 0
+            if parsed_args.command == 'api':
+                rest = getattr(parsed_args, 'args', [])
+                if not rest or '--help' in rest or '-h' in rest:
+                    ApiCommand()._create_parser().print_help()
                     return 0
 
             # Get the appropriate command handler

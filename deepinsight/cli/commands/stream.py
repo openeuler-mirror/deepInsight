@@ -36,6 +36,8 @@ from deepinsight.service.schemas.streaming import (
     EventType,
     MessageToolCallContent,
     MessageContentType,
+    Message,
+    MessageContent,
 )
 
 # ANSI escape helpers
@@ -518,7 +520,12 @@ async def _process_request(service: ResearchService, request: ResearchRequest, l
                 live.stop()
                 user_input = await ask_user(prompt_text=prompt_text, mode=stream_event.event, live=live)
                 new_request = deepcopy(request)
-                new_request.query = user_input
+                new_request.messages = [
+                    Message(
+                        content=MessageContent(text=user_input),
+                        content_type=MessageContentType.plain_text,
+                    )
+                ]
                 try:
                     await agen.aclose()
                 except Exception:

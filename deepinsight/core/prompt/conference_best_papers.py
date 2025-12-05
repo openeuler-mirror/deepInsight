@@ -362,7 +362,7 @@ paper_analysis_no_rag_prompt = r"""
 - 在生成 Markdown 报告时，按内容语义嵌入图片：  
   - 架构或算法流程图 → “关键技术”  
   - 实验结果图 → “技术效果”  
-- 保留外链形式 `![](https://...)`，不下载图片
+- 图像引用保持工具返回的原始链接或相对路径，不进行改写或补全；示例：`![<图表标题>](<图表链接或相对路径>)`
 
 ◆ 第三步：获取并分析论文内容  
 - 获取摘要、引言、核心方法、实验结果及结论  
@@ -495,8 +495,8 @@ paper_analysis_no_rag_prompt = r"""
 
 2. **数据库访问方式**（使用 SQLAlchemy Session）：  
    ```python
-   from databases.connection import Database
-   from databases.models.conference_paper import Author, Conference, Paper, PaperAuthorRelation
+   from deepinsight.databases.connection import Database
+   from deepinsight.databases.models.academic import Author, Conference, Paper, PaperAuthorRelation
    from sqlalchemy import select, func, desc, distinct
 
    with Database().get_session() as session:
@@ -505,60 +505,7 @@ paper_analysis_no_rag_prompt = r"""
 
 3. 数据库模型说明：
 
-```
-class Author(PaperBase):
-    __tablename__ = 'author_table'
-
-    author_id = Column(Integer, primary_key=True, autoincrement=True)
-    author_name = Column(String(100), nullable=False)
-    email = Column(String(255))
-    affiliation = Column(String(255))
-    affiliation_country = Column(String(100))
-    affiliation_city = Column(String(100))
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class Conference(PaperBase):
-    __tablename__ = 'conference_table'
-
-    conference_id = Column(Integer, primary_key=True, autoincrement=True)
-    full_name = Column(String(255), nullable=False)
-    short_name = Column(String(50))
-    year = Column(Integer, nullable=False)
-    location = Column(String(100))
-    start_date = Column(Date)
-    end_date = Column(Date)
-    website = Column(String(255))
-    topics: Mapped[list[str]] = Column(JSON)
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class Paper(PaperBase):
-    __tablename__ = 'paper_table'
-    paper_id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String(255), nullable=False)
-    conference_id = Column(Integer)  # 直接存储ID，不使用ForeignKey
-    publication_year = Column(Integer)
-    abstract = Column(Text)
-    keywords = Column(String(255))
-    author_ids = Column(String(500))  # 存储作者ID列表，如 "1,3,5"
-    reference_ids = Column(String(500))  # 存储参考文献ID列表
-    topic = Column(String(100), nullable=True)
-    created_at = Column(TIMESTAMP, default=datetime.now)
-    updated_at = Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
-
-
-class PaperAuthorRelation(PaperBase):
-    __tablename__ = 'paper_author_relation_table'
-
-    relation_id = Column(Integer, primary_key=True, autoincrement=True)
-    paper_id = Column(Integer)  # 直接存储ID
-    author_id = Column(Integer)  # 直接存储ID
-    author_order = Column(Integer, nullable=False)
-    is_corresponding = Column(Boolean, default=False, nullable=False)
-    created_at = Column(TIMESTAMP, default=datetime.now)
+{{db_models_description}}
 """
 
 paper_analysis_prompt = r"""
@@ -603,20 +550,12 @@ paper_analysis_prompt = r"""
 **目的**：提取论文中的**核心设计图**与**实验结果图**，辅助后续的结构化报告。
 **执行策略**：
 
-* **图像来源与格式强制要求**：优先使用 `retrieval` 工具检索图片资源，且最终在报告中引用的图片**必须**采用下列形式的外链（注意：使用内部IP或确定的IP，不可为 www 域名或外部域名）：
-
-  ```
-  ![](http://<ip>:<port>/parsed-file-images/<image_name>.jpg)
-  ```
-
-  * 要求使用 `http` 协议或根据系统要求的端口（不使用 `www` 或公共域名）；
-  * `<ip>` 必须为确定的 IP 地址，跟查询到的IP保持一致，确保准确，不要生成ip，不得使用域名占位符或 CDN 域名；
-  * 文件路径固定为 `/parsed-file-images/` 目录下的 jpg 文件。
+* **图像来源与格式要求**：优先使用 `retrieval` 工具检索图片资源，最终在报告中引用的图片链接或相对路径应与工具返回值保持一致；示例：`![<图表标题>](<图表链接或相对路径>)`。不得自行构造或替换链接结构。
 * 根据论文文本推断图片含义，明确其所表达的内容：
 
   * **架构设计/算法流程图** → 表示论文核心技术结构
   * **实验结果/对比性能图** → 展示技术效果与性能改进
-* 若 `retrieval` 无图片或不完整，使用网络搜索工具查找相应论文插图；在网络来源获得图片后，若系统流程要求将图片保存到内部解析目录，则需将图片保存为 `parsed-file-images/<image_name>.jpg` 并在报告中以上述 IP 外链形式引用。若不能保存到该内网路径，必须在报告中明确说明并列出实际可用的图片链接。
+* 若 `retrieval` 无图片或不完整，使用网络搜索工具查找相应论文插图；在网络来源获得图片后，若系统流程要求将图片保存到某目录并返回相对路径或链接，则在报告中按工具返回的路径或链接引用，并在无法保存到预期目录时明确说明并列出实际可用链接或路径。
 * **图片筛选规则**：仅保留两张
 
   1. 架构或流程图（体现设计思想）
@@ -625,8 +564,7 @@ paper_analysis_prompt = r"""
 
   * 架构图 → “关键技术”章节
   * 实验图 → “技术效果”章节
-* **强制外链形式**：图片在报告中必须以 `![](http://<ip>:<port>/parsed-file-images/<image_name>.jpg)` 的形式出现，不允许使用内嵌 Base64、附件或其他第三方 CDN 链接。
-* 不可下载或内嵌到 Markdown 文件中；若检索返回的图片原始 URL 不是内部 IP，请在保存步骤中将其转存到内部 `parsed-file-images` 并使用内部 IP 外链（如系统环境允许）。
+* **引用要求**：图片以 Markdown 形式引用为 `![<图表标题>](<图表链接或相对路径>)`，不允许内嵌 Base64 或作为附件。保持与工具返回一致，不强制特定协议或主机格式。
 
 ---
 
@@ -680,7 +618,7 @@ paper_analysis_prompt = r"""
 * **保存反馈要求**：在保存成功后，必须输出：
 
   * 完整文件路径（绝对路径）
-  * 所使用的图片链接清单，且每个图片链接必须为 `http://<ip>:<port>/parsed-file-images/<image_name>.jpg` 格式
+* 所使用的图片链接或相对路径清单，逐条保持与工具返回一致
 * 若保存失败，需说明原因并尝试修复（列出失败原因与下一步修复动作）。
 
 ❗ 注意事项：
@@ -736,10 +674,10 @@ paper_analysis_prompt = r"""
 用户输入论文名称后，严格按以下顺序执行：
 
 1. 查询论文（优先使用 retrieval）
-2. 获取论文相关图片（优先使用 retrieval，最终图片必须为内部 IP 外链形式）
+2. 获取论文相关图片（优先使用 retrieval，图片链接或相对路径按工具返回引用）
 3. 分析论文内容
-4. 生成报告（图片嵌入语义位置，并以指定 IP 外链引用）
-5. 保存 Markdown 文件及图片（并反馈文件路径与图片清单）
+4. 生成报告（图片嵌入语义位置，按工具返回的链接或相对路径引用）
+5. 保存 Markdown 文件及图片（并反馈文件路径与图片清单，保持链接或路径原样）
 """
 
 research_system_prompt = r"""

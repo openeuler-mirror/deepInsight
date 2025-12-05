@@ -15,6 +15,7 @@ from deepinsight.config.config import load_config
 from deepinsight.config.config import Config
 from deepinsight.service.research.research import ResearchService
 from deepinsight.service.schemas.research import ResearchRequest, SceneType
+from deepinsight.service.schemas.streaming import Message, MessageContent, MessageContentType
 from deepinsight.core.types.graph_config import SearchAPI
 from deepinsight.cli.commands.stream import (
     run_research_and_save_report_sync,
@@ -119,7 +120,12 @@ def run_generate_report(
     def create_one_generate(expert_name):
         return ResearchRequest(
             conversation_id=conversation_id,
-            query=question,
+            messages=[
+                Message(
+                    content=MessageContent(text=question),
+                    content_type=MessageContentType.plain_text,
+                )
+            ],
             scene_type=SceneType.DEEP_RESEARCH,
             search_api=search_types,
             expert_review_enable=False,
@@ -161,7 +167,7 @@ def run_generate_report(
         for each in report_filenames:
             with open(get_with_md_file_name(each, conversation_id, "research_result"), "r", encoding="utf-8") as f:
                 all_sub_reports.append(f.read())
-        models, default_model = init_langchain_models_from_llm_config(insight_service.config.llms)
+        models, default_model = init_langchain_models_from_llm_config(insight_service.get_default_config())
         summary_prompt = (
             PromptManager(insight_service.config.prompt_management)
             .get_prompt(name="summary_prompt", group="summary_experts")
@@ -227,7 +233,7 @@ def run_expert_review(question: str, insight_service: ResearchService, conversat
             with open(real_name, "r", encoding="utf-8") as f:
                 question = f.read()
     expert_names = choose_expert(require_one=True, expert_type="reviewer", live=live)
-    models, default_model = init_langchain_models_from_llm_config(insight_service.config.llms)
+    models, default_model = init_langchain_models_from_llm_config(insight_service.get_default_config())
     export_review_subgraph = build_expert_review_graph(
         [ExpertDef(name=each, prompt_key=each, type="reviewer") for each in expert_names]
     )

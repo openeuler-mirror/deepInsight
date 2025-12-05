@@ -35,23 +35,11 @@ def _is_http_url(url: str) -> bool:
         return False
 
 
-def _looks_like_image_by_ext(url: str) -> bool:
-    """Heuristic: check common image extensions to avoid unnecessary downloads."""
-    try:
-        ext = os.path.splitext(url.split("?")[0])[1].lower()
-        return ext in {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".webp"}
-    except Exception:
-        return False
-
-
 def _is_web_image(url: str) -> bool:
     """
-    Determine whether the given HTTP/HTTPS URL points to an image resource
-    using extension heuristics only. Does not perform any header requests.
+    Determine whether the given URL is a valid HTTP/HTTPS URL.
     """
-    if not _is_http_url(url):
-        return False
-    return _looks_like_image_by_ext(url)
+    return _is_http_url(url)
 
 
 @tool("download_file_from_url", return_direct=False)

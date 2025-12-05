@@ -19,6 +19,8 @@ from deepinsight.service.schemas.streaming import (
     MessageContentType as ResponseMessageContentType,
     MessageToolCallContent,
     StreamEvent,
+    Message,
+    MessageContentType,
 )
 
 from deepinsight.core.types import (
@@ -57,10 +59,32 @@ class StreamEventAdapter:
         self.tool_call_stream_block_nodes = set(tool_call_stream_block_nodes or [])
         self.blocked_tool_names = set(blocked_tool_names or [])
 
+    def _convert_messages_to_langchain(self, messages: List[Message]) -> List[Any]:
+        """Convert List[Message] to List[BaseMessage] for LangChain."""
+        langchain_messages = []
+        for msg in messages:
+            if msg.content_type == MessageContentType.plain_text and msg.content.text:
+                langchain_messages.append(HumanMessage(content=msg.content.text))
+            elif msg.content_type == MessageContentType.tool_call and msg.content.tool_calls:
+                # For tool calls, we might need to create ToolMessage or handle differently
+                # For now, we'll extract text if available or skip
+                for tool_call in msg.content.tool_calls:
+                    if tool_call.result:
+                        # If there's a result, create a ToolMessage
+                        tool_content = json.dumps(tool_call.result) if isinstance(tool_call.result, dict) else str(tool_call.result)
+                        langchain_messages.append(
+                            ToolMessage(
+                                content=tool_content,
+                                tool_call_id=tool_call.id or "",
+                                name=tool_call.name or "",
+                            )
+                        )
+        return langchain_messages
+
     async def run_graph(
         self,
         graph: CompiledStateGraph,
-        query: str,
+        messages: List[Message],
         graph_config: Optional[RunnableConfig] = None,
         stream_modes: Optional[List[str]] = None,
         conversation_id: Optional[str] = None,
@@ -69,20 +93,37 @@ class StreamEventAdapter:
 
         Parameters
         - graph: a LangGraph/LangChain graph-like object exposing `astream(...)`
-        - query: user query string
+        - messages: list of messages in the conversation
         - graph_config: configuration dict passed into graph execution
         - stream_modes: modes requested from graph, e.g. ["messages", "custom", "updates"]
         """
         graph_config = graph_config or {}
         stream_modes = stream_modes or ["messages", "custom", "updates"]
         tool_call_accumulator = {}
+        
+        # Validate messages
+        if not messages:
+            raise ValueError("Messages list cannot be empty")
+        
+        # Convert Message to LangChain BaseMessage
+        langchain_messages = self._convert_messages_to_langchain(messages)
+        if not langchain_messages:
+            raise ValueError("No valid messages could be converted from the input messages list")
+        
         init_state = {
-            "messages": [HumanMessage(content=query)],
+            "messages": langchain_messages,
         }
         state: StateSnapshot = graph.get_state(config=graph_config)
 
         # Resolve conversation id from function arg first, fallback to graph_config
         resolved_conversation_id = conversation_id or graph_config.get("conversation_id")
+
+        # Extract the last plain text message for resume command if needed
+        resume_content = ""
+        for msg in reversed(messages):
+            if msg.content_type == MessageContentType.plain_text and msg.content.text:
+                resume_content = msg.content.text
+                break
 
         # Call the underlying graph's streaming API
         if not state.interrupts:
@@ -104,7 +145,7 @@ class StreamEventAdapter:
         else:
             async for namespace, mode, data in graph.astream(
                     Command(
-                        resume=query,
+                        resume=resume_content,
                     ),
                     config=graph_config,
                     subgraphs=True,
@@ -148,7 +189,7 @@ class StreamEventAdapter:
                     try:
                         parsed = json.loads(message_chunk.content)
                     except Exception as e:
-                        logging.error(f"Failed to parse ToolMessage: {e}, raw={message_chunk.content}")
+                        # logging.error(f"Failed to parse ToolMessage: {e}, raw={message_chunk.content}")
                         parsed = {"raw": message_chunk.content}
 
                     yield StreamEvent(

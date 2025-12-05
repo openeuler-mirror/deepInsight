@@ -149,13 +149,18 @@ async def tavily_search(
         Formatted string containing summarized search results
     """
     # Step 1: Execute search queries asynchronously
-    search_results = await tavily_search_async(
-        queries,
-        max_results=1,
-        topic=topic,
-        include_raw_content=True,
-        config=config
-    )
+    try:
+        search_results = await tavily_search_async(
+            queries,
+            max_results=1,
+            topic=topic,
+            include_raw_content=True,
+            config=config
+        )
+    except Exception as e:
+        error_message = f"Tavily search failed with error: {type(e).__name__}: {e}"
+        logging.error(error_message)
+        return error_message
 
     # Step 2: Deduplicate results by URL to avoid processing the same content multiple times
     unique_results = {}

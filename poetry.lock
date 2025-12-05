@@ -3287,6 +3287,22 @@ langchain-core = ">=1.0.0,<2.0.0"
 langchain-openai = ">=1.0.0,<2.0.0"
 
 [[package]]
+name = "langchain-experimental"
+version = "0.4.0"
+description = "Building applications with LLMs through composability"
+optional = false
+python-versions = "<4.0,>=3.10"
+groups = ["main"]
+files = [
+    {file = "langchain_experimental-0.4.0-py3-none-any.whl", hash = "sha256:50306e75218e3a3f002de3dd879d719addd6481284b1a282292fac46a130f4a1"},
+    {file = "langchain_experimental-0.4.0.tar.gz", hash = "sha256:16bb5c9810e1908c0e2d82cd000bb434bb437b8977507e4dbfe5f25800f431fd"},
+]
+
+[package.dependencies]
+langchain-community = ">=0.4.0,<1.0.0"
+langchain-core = ">=1.0.0,<2.0.0"
+
+[[package]]
 name = "langchain-google-genai"
 version = "2.1.12"
 description = "An integration package connecting Google's genai package and LangChain"
@@ -8142,4 +8158,4 @@ sqlite-async = ["aiosqlite"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.13"
-content-hash = "d11b4565aaf4d89dab71e123839fd8423020ee5f9c4591cc31668c216b8840f4"
+content-hash = "731dc6abf0bd030f9824da972e0c268aea8e30e2534c9b2f62f6fe7cf67a81e8"

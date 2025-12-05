@@ -39,13 +39,39 @@ poetry run alembic upgrade head
 - 会议管理（conference）
   - 列表：`deepinsight conference list`
   - 删除：`deepinsight conference remove --id 12`
-  - 生成知识库：`deepinsight conference generate --name "ICLR 2025" --files-src ./path/to/files`
+  - 顶会洞察：`deepinsight conference generate --name "ICLR 2025" --files-src ./path/to/files`
+  - 会议问答：`deepinsight conference qa --name "ICLR 2025" --files-src ./path/to/files --question "今年最佳论文有哪些创新点？"`
   
 - 深度研究助手（research）
   - 启动研究：`deepinsight research start --topic "人工智能发展趋势"`
   - 查看帮助：`deepinsight research --help`
 
+- 后端服务（api）
+  - 启动后端服务：`deepinsight api start --config ./config.yaml`
+  - 指定专家配置（可选）：`deepinsight api start --config ./config.yaml --expert-config ./experts.yaml`
+  - 也可通过环境变量指定：`DEEPINSIGHT_CONFIG=./config.yaml deepinsight api start`
+
 提示：可通过环境变量 `DEEPINSIGHT_CONFIG` 指定配置文件路径（默认 `./config.yaml`）。
+
+### 图表图片路径配置（image_path_mode & image_base_url）
+- 在 `config.yaml` 的 `workspace` 段控制图表图片 URL 的返回策略：
+  - `image_path_mode`: `relative` 或 `base_url`
+  - `image_base_url`: 当使用 `base_url` 模式时用于拼接的基础 URL（例如 `http://127.0.0.1:8888/api/v1/deepinsight/charts/image`）。
+- 推荐设置：
+  - 命令行/离线生成 PDF 与 Markdown：`image_path_mode: relative`
+  - API/Web 预览：`image_path_mode: base_url` 并设置 `image_base_url` 指向你的服务地址。
+- 返回示例：
+  - `relative` → `../../charts/<uuid>.png`
+  - `base_url` → `http://<ip>:<port>/api/v1/deepinsight/charts/image/<uuid>`
+- 配置示例：
+  ```yaml
+  workspace:
+    work_root: ./data
+    chart_image_dir: charts
+    image_path_mode: base_url
+    image_base_url: http://127.0.0.1:8888/api/v1/deepinsight/charts/image
+  ```
+  若在命令行模式，请将 `image_path_mode` 设为 `relative`，其余保持默认即可。
 
 ### 方式二：Web方式运行
 
@@ -53,7 +79,9 @@ poetry run alembic upgrade head
 
 ```
 poetry install
-python deepinsight/app.py
+deepinsight api start --config ./config.yaml
+# 或直接运行脚本：
+python deepinsight/api/app.py --config ./config.yaml
 ```
 
 #### 启动前端服务

@@ -142,8 +142,6 @@ def batch_analyze_keynotes(
         Dict[str, bool]: 每个 keynote 对应的分析成功状态(True/False)
     """
     logging.info(f"接收到 keynotes_info，共 {len(keynotes_info)} 个")
-    logging.info(f"输出路径: {output_dir}")
-    logging.info(f"执行配置: {config}")
 
     result_map: Dict[str, bool] = {}
     timeout_seconds = 15 * 60  # 15 分钟超时

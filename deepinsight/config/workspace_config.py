@@ -16,6 +16,16 @@ class WorkspaceConfig(BaseModel):
         description="Relative image save directory under work_root",
     )
 
+    image_base_url: str | None = Field(
+        default=None,
+        description="Base URL for serving chart images",
+    )
+
+    image_path_mode: str = Field(
+        default="relative",
+        description="Path mode for image return: relative | base_url",
+    )
+
     conference_ppt_template_path: str | None = Field(
         default=None,
         description="PPT 模板路径（用于会议洞察报告生成）",

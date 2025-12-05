@@ -22,8 +22,12 @@ workspace:
   work_root: ./data
   # 会议洞察报告 PPT 模板路径（支持环境变量展开，如 ${PPT_TEMPLATE_PATH}）
   conference_ppt_template_path: ./templates/conference_template.pptx
-  # 图表图片保存目录（相对 work_root）
   chart_image_dir: charts
+  # 使用相对路径还是 base_url 模式返回图表图片 URL
+  # - relative: 直接返回图片相对路径，适合本地命令行，如：/deepinsight/charts/image/chart_123.png
+  # - base_url: 拼接 base_url，适合api模式，如：http://127.0.0.1:8888/api/v1/deepinsight/charts/image/chart_123.png
+  image_path_mode: base_url
+  image_base_url: http://127.0.0.1:8888/api/v1/deepinsight/charts/image
 
 # RAG 相关工作路径配置
 # 将作为所有 RAG 本地数据的前缀目录，例如：
@@ -41,6 +45,8 @@ prompt_management:
     host: ${LANGFUSE_HOST}
   groups:
     deep_research:
+      label: "latest"
+    conference_qa:
       label: "latest"
     conference_supervisor:
       label: "latest"

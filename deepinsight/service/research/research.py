@@ -14,8 +14,14 @@ from re import U
 import uuid
 import os
 import io
-from typing import AsyncGenerator, Any, Dict, Set
+import asyncio
+from typing import AsyncGenerator, Any, Dict, Set, Tuple
+import json
+import base64
+import logging
+from datetime import datetime
 
+from langchain_core.messages import HumanMessage
 from langgraph.graph.state import CompiledStateGraph
 from langfuse.langchain import CallbackHandler
 
@@ -26,11 +32,13 @@ from deepinsight.service.streaming.stream_adapter import StreamEventAdapter
 from deepinsight.service.ppt.template_service import PPTTemplateService
 from deepinsight.utils.llm_utils import init_langchain_models_from_llm_config
 from deepinsight.utils.common import safe_get
-from deepinsight.core.agent.conference_research.supervisor import graph as conference_graph
+from deepinsight.core.agent.conference_qa.supervisor import graph as conference_qa_graph
+from deepinsight.core.agent.conference_research.supervisor import graph as conference_research_graph
 from deepinsight.core.agent.deep_research.supervisor import graph as deep_research_graph
 from deepinsight.core.agent.deep_research.parallel_supervisor import graph as parallel_deep_research_graph
 from deepinsight.core.agent.conference_research.ppt_generate import graph as ppt_generate_graph
-from deepinsight.service.schemas.research import ResearchRequest, SceneType, PPTGenerateRequest
+from deepinsight.service.schemas.research import ResearchRequest, SceneType, PPTGenerateRequest, PdfGenerateRequest, ArgOptionsGeneric, LLMConfig
+from deepinsight.utils.trans_md_to_pdf import save_markdown_as_pdf
 
 
 class ResearchService:
@@ -61,8 +69,10 @@ class ResearchService:
 
     def _build_graph_config(self, req: ResearchRequest) -> dict:
         """Build a graph_config with request-first precedence, falling back to config.yaml."""
-        # Prefer request-provided LLM configs, else use system defaults
-        model_configs = req.args.llm_options if (getattr(req, "args", None) and getattr(req.args, "llm_options", None)) else self.config.llms
+        # Prefer request-provided LLM configs, else use system defaults (wrapped)
+        model_configs = req.args.llm_options if (
+            getattr(req, "args", None) and getattr(req.args, "llm_options", None)
+        ) else self.get_default_config()
         models, default_model = init_langchain_models_from_llm_config(model_configs)
 
         # Read scenario-specific flags and filters (typed access) with request override
@@ -74,7 +84,7 @@ class ResearchService:
  
         # Determine prompt group for this scene
         # Conference graph expects prompts under the 'conference_supervisor' group module
-        if (req.scene_type or SceneType.DEEP_RESEARCH) == SceneType.CONFERENCE:
+        if req.scene_type == SceneType.CONFERENCE_RESEARCH:
             prompt_group = "conference_supervisor"
         else:
             # Fallback group name; supervisor graph is only used for conference
@@ -140,8 +150,10 @@ class ResearchService:
     def _select_scene_graph(self, request: ResearchRequest) -> CompiledStateGraph:
         """根据场景类型选择对应的 LangGraph。"""
         scene_type = request.scene_type or SceneType.DEEP_RESEARCH
-        if scene_type == SceneType.CONFERENCE:
-            return conference_graph
+        if scene_type == SceneType.CONFERENCE_QA:
+            return conference_qa_graph
+        elif scene_type == SceneType.CONFERENCE_RESEARCH:
+            return conference_research_graph
         elif scene_type == SceneType.DEEP_RESEARCH:
             if request.parallel_expert_review_enable and request.review_experts:
                 return parallel_deep_research_graph
@@ -157,7 +169,7 @@ class ResearchService:
         Execute the research chat and yield StreamEvent.
     
         Parameters:
-        - request: ResearchRequest with conversation_id, query and optional args
+        - request: ResearchRequest with conversation_id, messages and optional args
         - scene_type: 从请求中读取，选择对应的 graph
         """
         graph_config = self._build_graph_config(request)
@@ -170,7 +182,7 @@ class ResearchService:
         scene_graph = self._select_scene_graph(request)
         async for event in adapter.run_graph(
             graph=scene_graph,
-            query=request.query,
+            messages=request.messages,
             graph_config=graph_config,
             conversation_id=request.conversation_id,
         ):
@@ -180,7 +192,7 @@ class ResearchService:
         self,
         *,
         request: PPTGenerateRequest,
-    ) -> AsyncGenerator[StreamEvent, None]:
+    ) -> Tuple[io.BytesIO, str]:
         """
         Generate PPT based on the conversation history.
     
@@ -190,7 +202,7 @@ class ResearchService:
         # 选择模型配置：优先使用请求参数中的 llm_options，其次使用全局配置
         model_configs = request.args.llm_options if (
             getattr(request, "args", None) and getattr(request.args, "llm_options", None)
-        ) else self.config.llms
+        ) else self.get_default_config()
         if len(model_configs) == 0:
             raise ValueError(f"Provide at least one LLM configuration")
         models, default_model = init_langchain_models_from_llm_config(model_configs)
@@ -234,3 +246,139 @@ class ResearchService:
         prs.save(pptx_stream)
         pptx_stream.seek(0)
         return pptx_stream, output_name
+
+    async def pdf_generate(self, request: PdfGenerateRequest):
+        conversation_id = request.conversation_id
+        model_configs = request.args.llm_options if (
+                request.args and request.args.llm_options) else self.get_default_config()
+        if len(model_configs) == 0:
+            raise ValueError(f"Provide at least one LLM configuration")
+        models, default_model = init_langchain_models_from_llm_config(llm_config=model_configs)
+        work_root = os.path.abspath(self.config.workspace.work_root) if getattr(self.config, "workspace", None) else os.path.abspath("./data")
+        base_dir = os.path.join(work_root, "conference_report_result", conversation_id)
+        os.makedirs(base_dir, exist_ok=True)
+        json_path = os.path.join(base_dir, "pdf_content.json")
+
+        if os.path.exists(json_path):
+            with open(json_path, "r", encoding="utf-8") as f:
+                cached = json.loads(f.read())
+            file_name = cached.get("file_name")
+            pdf_bytes = base64.b64decode(cached.get("content", ""))
+            buffer = io.BytesIO(pdf_bytes)
+            buffer.seek(0)
+            return buffer, file_name
+
+        ordered_files = [
+            "conference_overview.md",
+            "conference_keynotes.md",
+            "conference_topic.md",
+        ]
+        value_mining_dir = os.path.join(base_dir, "conference_value_mining")
+        value_mining_files = [
+            "tech_topics.md",
+            "national_tech_profile.md",
+            "institution_overview.md",
+            "inter_institution_collab.md",
+            "research_hotspots.md",
+            "high_potential_tech_transfer.md",
+        ]
+        summary_file = "conference_summary.md"
+        best_papers_dir = os.path.join(base_dir, "conference_best_papers")
+
+        markdown_parts = []
+
+        for file_name in ordered_files:
+            file_path = os.path.join(base_dir, file_name)
+            if os.path.exists(file_path):
+                with open(file_path, "r", encoding="utf-8") as f:
+                    markdown_parts.append(f.read())
+
+        if os.path.exists(value_mining_dir):
+            for vm_file in value_mining_files:
+                vm_path = os.path.join(value_mining_dir, vm_file)
+                if os.path.exists(vm_path):
+                    with open(vm_path, "r", encoding="utf-8") as f:
+                        markdown_parts.append(f.read())
+                    
+        if os.path.exists(best_papers_dir):
+            best_papers = sorted(
+                [f for f in os.listdir(best_papers_dir) if f.endswith(".md")]
+            )
+            for bp in best_papers:
+                bp_path = os.path.join(best_papers_dir, bp)
+                with open(bp_path, "r", encoding="utf-8") as f:
+                    markdown_parts.append(f.read())
+
+        summary_path = os.path.join(base_dir, summary_file)
+        if os.path.exists(summary_path):
+            with open(summary_path, "r", encoding="utf-8") as f:
+                markdown_parts.append(f.read())
+
+        if not markdown_parts:
+            raise FileNotFoundError(f"No markdown files found for conversation_id={conversation_id}")
+
+        merged_markdown = "\n\n---\n\n".join(markdown_parts)
+
+        overview_path = os.path.join(base_dir, "conference_overview.md")
+        report_name = "未知会议"
+        if os.path.exists(overview_path):
+            with open(overview_path, "r", encoding="utf-8") as f:
+                overview_text = f.read()
+
+            prompt = (
+                "请从以下文本中提取会议名称和年份，例如“SOSP 2025”或“NeurIPS 2024”。"
+                "仅返回会议名与年份，不要包含其他文字。\n\n"
+                f"文本内容：\n{overview_text}"
+            )
+            try:
+                response = await default_model.with_retry().ainvoke([HumanMessage(content=prompt)])
+                report_name = response.content
+                report_name = report_name.strip().replace("\n", "").replace("：", ":")
+            except Exception as e:
+                logging.warning(f"LLM parse conference name error: {e}")
+
+        now = datetime.now()
+        time_str = now.strftime("%Y年%m月%d日 %H时%M分%S秒")
+        time_for_filename = now.strftime("%Y%m%d_%H%M%S")
+
+        header_info = (
+            f"作者：DeepInsight顶会助手v0.1.0  \n"
+            f"部门：中软架构与设计管理部  \n"
+            f"时间：{time_str}  \n\n---\n\n"
+        )
+
+        final_markdown = header_info + merged_markdown
+
+        file_name = f"{report_name} 洞察报告-{time_for_filename}.pdf"
+        buffer = io.BytesIO()
+        output_pdf_path = os.path.join(base_dir, file_name)
+        await asyncio.to_thread(
+            save_markdown_as_pdf,
+            markdown_content=final_markdown,
+            output_filename=output_pdf_path,
+            base_url=base_dir,
+        )
+        pdf_bytes = await asyncio.to_thread(lambda p=output_pdf_path: open(p, "rb").read())
+        buffer.write(pdf_bytes)
+        buffer.seek(0)
+
+        cache_data = {"file_name": file_name, "content": base64.b64encode(buffer.getvalue()).decode("utf-8")}
+        with open(json_path, "w", encoding="utf-8") as f:
+            f.write(json.dumps(cache_data, ensure_ascii=False, indent=2))
+
+        return buffer, file_name
+
+    def get_default_config(self) -> List[ArgOptionsGeneric[LLMConfig]]:
+        return [
+            ArgOptionsGeneric(
+                type=each.type,
+                params=LLMConfig(
+                    type=each.type,
+                    model=each.model,
+                    base_url=each.base_url,
+                    api_key=each.api_key,
+                    setting=each.setting,
+                ),
+            )
+            for each in self.config.llms
+        ]
