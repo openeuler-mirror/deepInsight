@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -16,7 +17,7 @@ class WorkspaceConfig(BaseModel):
         description="Relative image save directory under work_root",
     )
 
-    image_base_url: str | None = Field(
+    image_base_url: Optional[str] = Field(
         default=None,
         description="Base URL for serving chart images",
     )
@@ -26,7 +27,7 @@ class WorkspaceConfig(BaseModel):
         description="Path mode for image return: relative | base_url",
     )
 
-    conference_ppt_template_path: str | None = Field(
+    conference_ppt_template_path: Optional[str] = Field(
         default=None,
         description="PPT 模板路径（用于会议洞察报告生成）",
     )

@@ -207,6 +207,11 @@ def init_lightrag_llm_model_func(cfg: Config) -> Callable[..., Any]:
     def llm_model_func(prompt, system_prompt=None, history_messages=[], **kwargs):
         merged_kwargs = {**cfg_kwargs, **kwargs}
         merged_kwargs.setdefault("timeout", 300)
+        
+        # Filter out internal LightRAG parameters that aren't supported by OpenAI SDK
+        # These are internal parameters used by LightRAG for priority/routing
+        unsupported_params = {'_priority', '_source', '_task_id', '_retry_count'}
+        filtered_kwargs = {k: v for k, v in merged_kwargs.items() if k not in unsupported_params}
 
         return openai_complete_if_cache(
             model_name,
@@ -215,7 +220,7 @@ def init_lightrag_llm_model_func(cfg: Config) -> Callable[..., Any]:
             history_messages=history_messages,
             api_key=api_key,
             base_url=base_url,
-            **merged_kwargs,
+            **filtered_kwargs,
         )
 
     return llm_model_func

@@ -6,6 +6,8 @@ from typing import TypedDict
 import httpx
 from langchain_core.tools import tool as make_tool, Tool
 from langchain_core.runnables import RunnableConfig
+from deepinsight.core.utils.research_utils import parse_research_config
+from deepinsight.core.types.graph_config import RetrievalType
 import requests
 
 # --- 该工具需要以下环境变量 ---
@@ -14,21 +16,6 @@ import requests
 
 __all__ = ["KnowledgeTool"]
 logger = logging.getLogger(__name__)
-
-
-class _RagFlowDialog(TypedDict):
-    kb_ids: list[str]
-    top_n: int
-    dialog_id: str | None  # only for log
-    rerank_id: str | None
-    top_k: int | None
-    similarity_threshold: float | None
-    vector_similarity_weight: float | None
-
-
-class _RagFlowConfigurable(TypedDict):
-    api_key: str
-    dialog: _RagFlowDialog
 
 
 def _create_tool_description(f):
@@ -93,23 +80,26 @@ def _get_api_base(question: str) -> str:
 
 
 def _make_request_args(question: str, api_base: str, config: RunnableConfig) -> dict:
-    config: _RagFlowConfigurable = config["configurable"]["ragflow"]
-    dialog: _RagFlowDialog = config["dialog"]
-    logger.info(f"对话ID: {dialog.get('dialog_id') or '未知'}, 知识库IDs: {dialog.get('kb_ids')}")
+    rc = parse_research_config(config)
+    retrieval_config = rc.retrieval_config
+    if not retrieval_config or RetrievalType.RAGFLOW not in retrieval_config:
+        raise ValueError("RagFlow retrieval config is not configured.")
+    ragflow_retrieval_config = retrieval_config[RetrievalType.RAGFLOW]
+    logger.info(f"对话ID: {ragflow_retrieval_config.args.dialog_id or '未知'}, 知识库IDs: {ragflow_retrieval_config.args.kb_ids}")
 
-    kbs = dialog.get("kb_ids")
+    kbs = ragflow_retrieval_config.args.kb_ids
     if not isinstance(kbs, list) and kbs:
-        logger.error(f"未找到与对话 {dialog['dialog_id']!r} 关联的知识库")
-        raise RuntimeError(f"No knowledge bases found for dialog {dialog['dialog_id']!r}")
+        logger.error(f"未找到与对话 {ragflow_retrieval_config.args.dialog_id!r} 关联的知识库")
+        raise RuntimeError(f"No knowledge bases found for dialog {ragflow_retrieval_config.args.dialog_id!r}")
 
-    similarity_threshold = dialog.get("similarity_threshold", 0.3)
-    rerank_enabled = bool(dialog.get('rerank_id'))
-    logger.info(f"调用检索器进行知识检索，{len(kbs)}个知识库，top_n={dialog['top_n']}，"
+    similarity_threshold = ragflow_retrieval_config.args.similarity_threshold
+    rerank_enabled = bool(ragflow_retrieval_config.args.rerank_id)
+    logger.info(f"调用检索器进行知识检索，{len(kbs)}个知识库，top_n={ragflow_retrieval_config.args.top_n}，"
                 f"相似度阈值={similarity_threshold}，"
                 f"{'' if rerank_enabled else '未'}启用重排。")
 
     # 调用检索接口
-    headers = {"Authorization": f"Bearer {config['api_key']}"}
+    headers = {"Authorization": f"Bearer {ragflow_retrieval_config.api_key}"}
     params = dict(
         question=question,
         dataset_ids=kbs,
@@ -117,9 +107,9 @@ def _make_request_args(question: str, api_base: str, config: RunnableConfig) -> 
         page=1,
         page_size=20,
         similarity_threshold=similarity_threshold,
-        vector_similarity_weight=dialog.get("vector_similarity_weight", 0.7),
-        top_k=dialog.get("top_k") or 1024,
-        rerank_id=dialog.get("rerank_id"),
+        vector_similarity_weight=ragflow_retrieval_config.args.vector_similarity_weight,
+        top_k=ragflow_retrieval_config.args.top_k or 1024,
+        rerank_id=ragflow_retrieval_config.args.rerank_id,
         keyword=False
     )
     return dict(url=f"{api_base}/retrieval", headers=headers, json=params,

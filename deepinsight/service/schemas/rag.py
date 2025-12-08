@@ -56,10 +56,9 @@ class IndexResult(BaseModel):
 class Passage(BaseModel):
     """Search evidence chunk."""
 
-    doc_id: str
     chunk_id: str
     text: str
-    score: float
+    score: Optional[float]
     meta: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 

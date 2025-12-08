@@ -6,7 +6,7 @@ app:
   reload: false
 
 database:
-  url: sqlite:///deepinsight.db
+  url: sqlite:///data/deepinsight.db
 
 llms:
   - type: deepseek
@@ -35,6 +35,26 @@ workspace:
 # - 会务文档目标根目录 -> ${rag.work_root}/original_files/conference/<conference_id>
 rag:
   work_root: ./data
+  engine:
+    type: llamaindex  # lightrag / llamaindex
+    lightrag:
+      embedding_model: sentence-transformers/all-MiniLM-L6-v2
+      embedding_dim: 384
+      enable_graph_extraction: false
+    llamaindex:
+      embed_model: BAAI/bge-small-en-v1.5
+      embed_device: cpu
+      llm_model:
+      llm_api_key:
+      llm_base_url:
+  parser:
+    type: llamaindex  # mineru_vl / llamaindex
+    mineru_vl:
+      enable_vl: false
+    llamaindex:
+      use_llama_parse: false
+      api_key: ${LLAMA_PARSE_API_KEY}
+      premium: false
 
 prompt_management:
   source: local # local / remote
@@ -48,7 +68,7 @@ prompt_management:
       label: "latest"
     conference_qa:
       label: "latest"
-    conference_supervisor:
+    conference_research:
       label: "latest"
     conference_overview:
       label: "latest"

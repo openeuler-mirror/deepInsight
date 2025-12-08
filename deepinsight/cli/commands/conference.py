@@ -18,7 +18,7 @@ from rich.live import Live
 from deepinsight.utils.progress import RichProgressReporter
 
 from deepinsight.service.conference import ConferenceService
-from deepinsight.config.config import load_config
+from deepinsight.config.config import load_config, Config
 from deepinsight.service.schemas.conference import (
     ConferenceListRequest,
     ConferenceDeleteRequest,
@@ -27,7 +27,7 @@ from deepinsight.service.schemas.conference import (
 )
 
 from deepinsight.service.research.research import ResearchService
-from deepinsight.service.schemas.research import ResearchRequest, SceneType, PPTGenerateRequest
+from deepinsight.service.schemas.research import ResearchRequest, SceneType, PPTGenerateRequest, ResearchArgs, RetrievalArgs, ArgOptionsGeneric
 from deepinsight.service.schemas.streaming import Message, MessageContent, MessageContentType
 from deepinsight.cli.commands.stream import run_research_and_save_report_sync, make_report_filename
 from deepinsight.core.types.graph_config import SearchAPI
@@ -179,7 +179,7 @@ Examples:
             reporter = RichProgressReporter(console=get_console())
             # English notice for potentially long parsing time
             reporter.info("Parsing documents. This may take a while...")
-            asyncio.run(service.ensure_conference_and_ingest_docs(req, reporter=reporter))
+            conf_id, kb_id = asyncio.run(service.ensure_conference_and_ingest_docs(req, reporter=reporter))
             print("✓ 生成成功：会议文档已入库（创建或增量）")
 
             # --- Integrate research streaming to auto-generate a summary report ---
@@ -207,7 +207,10 @@ Examples:
                     allow_user_clarification=False,
                     allow_edit_research_brief=False,
                     allow_edit_report_outline=False,
-                    search_api=[SearchAPI.TAVILY],
+                    search_type=["rag_retrieval", "web_search"],  # Default: RAG + web search
+                    args=ResearchArgs(
+                        retrieval_options=self._create_retrieval_options(self._get_config(), kb_id)
+                    ),
                 ),
                 result_file_stem=result_stem,
                 gen_pdf=True,
@@ -261,7 +264,7 @@ Examples:
             )
             reporter = RichProgressReporter(console=get_console())
             reporter.info("Parsing documents. This may take a while...")
-            asyncio.run(service.ensure_conference_and_ingest_docs(req, reporter=reporter))
+            conf_id, kb_id = asyncio.run(service.ensure_conference_and_ingest_docs(req, reporter=reporter))
             research_service = ResearchService(self._get_config())
             base = (short_name or full_name).strip()
             slug = re.sub(r"\s+", "-", base)
@@ -286,7 +289,10 @@ Examples:
                     allow_user_clarification=False,
                     allow_edit_research_brief=False,
                     allow_edit_report_outline=False,
-                    search_api=[SearchAPI.TAVILY],
+                    search_type=["rag_retrieval", "web_search"],  # Default: RAG + web search
+                    args=ResearchArgs(
+                        retrieval_options=self._create_retrieval_options(self._get_config(), kb_id)
+                    ),
                 ),
                 result_file_stem=result_stem,
                 gen_pdf=True,
@@ -297,3 +303,31 @@ Examples:
         except Exception as e:
             logger.exception("✗ 问答失败")
             return 1
+
+    def _create_retrieval_options(self, config: Config, kb_id: int):
+        rag_engine = self.get_rag_engine_type(config)
+        retrieval_options = [
+            ArgOptionsGeneric(
+                type=rag_engine,  # Use configured engine type
+                params=RetrievalArgs(
+                    dataset_ids=[str(kb_id)],
+                    top_k=10,
+                    top_n=3,
+                )
+            )
+        ]
+        return retrieval_options
+
+    def get_rag_engine_type(self, config: Config) -> Optional[str]:
+        """Get configured RAG engine type from config.
+        
+        Returns:
+            'lightrag', 'llamaindex', or None if not configured
+        """
+        try:
+            engine_type = config.rag.engine.type
+            if engine_type in ['lightrag', 'llamaindex']:
+                return engine_type
+            return None
+        except (AttributeError, KeyError):
+            return None

@@ -1,6 +1,6 @@
 import json
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import asyncio
 from typing import List, Dict
 
 from langchain.agents.middleware import ModelFallbackMiddleware
@@ -10,13 +10,16 @@ from langchain_core.runnables import RunnableConfig
 from langchain_tavily import TavilySearch
 
 from deepinsight.core.tools.file_system import register_fs_tools, MemoryMCPFilesystem
+from deepinsight.core.utils.tool_utils import create_retrieval_tool, CoerceToolOutput
+from deepinsight.core.utils.context_utils import SummarizationMiddleware
+from deepinsight.core.types.graph_config import RetrievalType
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.utils.db_schema_utils import get_db_models_source_markdown
 from deepinsight.core.utils.context_utils import DefaultSummarizationMiddleware
 
 # ----------------- 单篇论文解析函数 -----------------
 
-def analyze_single_paper(paper_info: str, output_dir: str, config: RunnableConfig) -> bool:
+async def analyze_single_paper(paper_info: str, output_dir: str, config: RunnableConfig) -> bool:
     """
     对单篇论文进行解析，并将结果保存到文件
 
@@ -46,22 +49,52 @@ def analyze_single_paper(paper_info: str, output_dir: str, config: RunnableConfi
                 group=rc.prompt_group,
         ).format(output_dir=output_dir, db_models_description=get_db_models_source_markdown())
 
+
         tools.append(tavily_instance)
-        if "ragflow" in config["configurable"]:
-            # knowledge_tool = KnowledgeTool()
-            # tools.append(knowledge_tool.knowledge_retrieve)
-            prompt_template = rc.prompt_manager.get_prompt(
-                name="paper_analysis_prompt",
-                group=rc.prompt_group,
-            ).format(output_dir=output_dir, db_models_description=get_db_models_source_markdown())
+        
+        # Add all configured retrieval tools
+        if rc.retrieval_config:
+            has_retrieval = False
+            for retrieval_type in rc.retrieval_config.keys():
+                try:
+                    retrieval_tool = create_retrieval_tool(retrieval_type, config)
+                    tools.append(retrieval_tool)
+                    has_retrieval = True
+                except Exception as e:
+                    logging.warning(f"Failed to create retrieval tool for {retrieval_type}: {e}")
+            
+            if has_retrieval:
+                prompt_template = rc.prompt_manager.get_prompt(
+                    name="paper_analysis_prompt",
+                    group=rc.prompt_group,
+                ).format(output_dir=output_dir, db_models_description=get_db_models_source_markdown())
 
         from deepagents import create_deep_agent
         # Create the deep agent
-
+        summary_subagent_system_prompt = rc.prompt_manager.get_prompt(
+            name="review_paper_prompt",
+            group=rc.prompt_group,
+        ).format()
+        summary_subagent = {
+            "name": "summary-agent",
+            "description": "顶会优秀论文分析与点评助手，你需要获取全部论文相关资料（必须包括1、主题与作者信息（200字）2、问题与挑战（300字），3、关键技术及技术效果（600字）,请注意这些内容是你需要预先获取的！！不是你要生成的任务）；通过这些论文资料分析并给出核心价值，并从技术创新性、理论贡献及商业落地角度分析与点评内容。",
+            "system_prompt": summary_subagent_system_prompt,
+            "tools": []
+        }
+        middleware = [
+            CoerceToolOutput(),
+            SummarizationMiddleware(model=rc.default_model),
+            ModelFallbackMiddleware(
+                rc.default_model,  # Try first on error
+                rc.default_model,  # Then this
+            )
+        ]
         agent = create_deep_agent(
             model=rc.default_model,
             tools=tools,
             system_prompt=prompt_template,
+            middleware=middleware,
+            subagents=[summary_subagent]
         )
         input_messages = [
             {
@@ -71,7 +104,9 @@ def analyze_single_paper(paper_info: str, output_dir: str, config: RunnableConfi
         # Invoke the agent
         config_dict = dict(config) if not isinstance(config, dict) else config
         config_dict = {**config_dict, "recursion_limit": 500}
-        agent.invoke({"messages": input_messages}, config=config_dict)
+        config_dict = {**config_dict, "recursion_limit": 500}
+        await agent.ainvoke({"messages": input_messages}, config=config_dict)
+        return True
     except Exception as e:
         logging.error(f"论文解析失败: {paper_info}, 错误: {e}")
         import traceback
@@ -80,7 +115,7 @@ def analyze_single_paper(paper_info: str, output_dir: str, config: RunnableConfi
 
 # ----------------- 批量论文解析工具 -----------------
 @tool
-def batch_analyze_papers(
+async def batch_analyze_papers(
         papers_info: List[str],
         output_dir: str,
         config: RunnableConfig
@@ -98,11 +133,22 @@ def batch_analyze_papers(
     logging.info(f"paper_titles: {papers_info}")
     logging.info(f"output_dir: {output_dir}")
     result_map = {}
-    timeout_seconds = 15 * 60  # 15 分钟
-    with ThreadPoolExecutor(max_workers=20) as executor:
-        future_to_paper = {executor.submit(analyze_single_paper, paper, output_dir, config): paper for paper in
-                           papers_info}
-        for future in as_completed(future_to_paper, timeout=timeout_seconds):
-            paper = future_to_paper[future]
-            result_map[paper] = True
+    
+    # Create tasks for all papers
+    tasks = [
+        analyze_single_paper(paper, output_dir, config)
+        for paper in papers_info
+    ]
+    
+    # Execute tasks concurrently
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # Process results
+    for paper, result in zip(papers_info, results):
+        if isinstance(result, Exception):
+            logging.error(f"Failed to analyze paper {paper}: {result}")
+            result_map[paper] = False
+        else:
+            result_map[paper] = True # analyze_single_paper returns True on success (if we add return True)
+            
     return result_map

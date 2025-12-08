@@ -15,11 +15,12 @@ from langgraph.graph import StateGraph, add_messages
 from langgraph.types import Command, interrupt
 from langmem.short_term import SummarizationNode
 
-from deepinsight.core.tools.ragflow_retrival import KnowledgeTool
+from deepinsight.core.utils.tool_utils import create_retrieval_tool
 from deepinsight.core.utils.progress_utils import progress_stage
 from deepinsight.utils.tavily_key_utils import select_api_key
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.core.types.research import FinalResult
+from deepinsight.core.types.graph_config import RetrievalType
 from deepinsight.core.agent.conference_research.supervisor import graph as conference_research_graph
 from deepinsight.core.agent.conference_qa.statistics import graph as statistics_graph
 from deepinsight.core.tools.tavily_search import tavily_search
@@ -194,12 +195,18 @@ async def paper_team_node(state: SupervisorState) -> Command[Literal[GraphNodeTy
 
 @progress_stage("论文检索")
 async def retrival_team_node(state: SupervisorState, config: RunnableConfig) -> Command[Literal[END]]:
+
     rc = parse_research_config(config)
     tools = [tavily_search]
-    if "ragflow" in config["configurable"]:
-        logging.info("ragflow in config")
-        knowledge_tool = KnowledgeTool()
-        tools.append(knowledge_tool.knowledge_retrieve)
+    
+    # Add all configured retrieval tools
+    if rc.retrieval_config:
+        for retrieval_type in rc.retrieval_config.keys():
+            try:
+                retrieval_tool = create_retrieval_tool(retrieval_type, config)
+                tools.append(retrieval_tool)
+            except Exception as e:
+                logging.warning(f"Failed to create retrieval tool for {retrieval_type}: {e}")
     # 调用 retrival Team 的处理流程
     system_prompt = """ 
     你是一名专精于学术论文检索与数据分析的智能研究助理。  
@@ -371,7 +378,7 @@ async def deep_research_team_node(state: SupervisorState, config: RunnableConfig
     parent_configurable = config.get("configurable", {})
     deep_research_config = {
         **parent_configurable,
-        "prompt_group": SceneType.DEEP_RESEARCH.value,
+        "prompt_group": SceneType.CONFERENCE_RESEARCH.value,
         "allow_user_clarification": False,
         "allow_edit_research_brief": False,
         "allow_edit_report_outline": False,

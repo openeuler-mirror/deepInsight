@@ -118,14 +118,20 @@ def get_json_result(code=0, message="success", data=None):
 
 
 @router.post("/deepinsight/chat")
-async def deepinsight_chat(request: ResearchRequest):
+async def deepinsight_chat(
+    request: ResearchRequest,
+    ragflow_authorization: Optional[str] = Header(None, alias="ragflow-authorization")
+):
     """
     Async endpoint for insight.
     """
     logging.info(f"request:  {request}")
 
     async def stream():
-        async for event in research_service.chat(request=request):
+        async for event in research_service.chat(
+            request=request,
+            ragflow_authorization=ragflow_authorization
+        ):
             yield f"data: {event.model_dump_json()}\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")

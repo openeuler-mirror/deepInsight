@@ -326,7 +326,7 @@ explores the interaction of computer systems with related areas such as computer
             await self._knowledge.mark_failed(kb.kb_id)
             raise
         
-    async def ensure_conference_and_ingest_docs(self, req: ConferenceParseDocsRequest, reporter: Optional[ProgressReporter] = None) -> None:
+    async def ensure_conference_and_ingest_docs(self, req: ConferenceParseDocsRequest, reporter: Optional[ProgressReporter] = None) -> Tuple[int, int]:
         """Ensure conference exists and ingest documents.
         - If conference not exists: create conference, copy folder, register docs.
         - If exists: diff new folder vs existing KB root_dir and ingest incrementally.
@@ -345,8 +345,8 @@ explores the interaction of computer systems with related areas such as computer
 
         if kb is None:
             # Initial ingestion path
-            await self._initial_ingest_for_conference(conf_id, req, reporter)
-            return
+            kb_id = await self._initial_ingest_for_conference(conf_id, req, reporter)
+            return conf_id, kb_id
 
         # Before incremental ingestion: retry unfinished docs if any
         if kb is not None:
@@ -354,7 +354,7 @@ explores the interaction of computer systems with related areas such as computer
 
         # Incremental ingestion path
         await self._incremental_ingest_for_conference(kb, conf_id, req, reporter)
-        return
+        return conf_id, kb.kb_id
 
     async def _reparse_unfinished_docs_for_conference(self, kb_id: int, conference_id: int, reporter: Optional[ProgressReporter]) -> None:
         try:
@@ -425,7 +425,7 @@ explores the interaction of computer systems with related areas such as computer
             conf_id = created.conference_id
         return conf_id
 
-    async def _initial_ingest_for_conference(self, conf_id: int, req: ConferenceParseDocsRequest, reporter: Optional[ProgressReporter]) -> None:
+    async def _initial_ingest_for_conference(self, conf_id: int, req: ConferenceParseDocsRequest, reporter: Optional[ProgressReporter]) -> int:
         target_root = os.path.join(self._config.rag.work_root, "original_files", "conference", str(conf_id))
         os.makedirs(target_root, exist_ok=True)
         dest_dir = target_root
@@ -456,6 +456,7 @@ explores the interaction of computer systems with related areas such as computer
                         db.commit()
                 raise ValueError("No documents ingested")
             await self._knowledge.finalize_success(FinalizeRequest(kb_id=kb.kb_id, owner_id=conf_id))
+            return kb.kb_id
         except Exception:
             await self._knowledge.mark_failed(kb.kb_id)
             await self._knowledge.cleanup_kb(kb.kb_id)
@@ -468,8 +469,8 @@ explores the interaction of computer systems with related areas such as computer
 
     async def _incremental_ingest_for_conference(self, kb: KnowledgeBaseResponse, conf_id: int, req: ConferenceParseDocsRequest, reporter: Optional[ProgressReporter]) -> None:
         existing_root = kb.root_dir
-        old_files = {os.path.basename(p) for p in self._list_files(existing_root, tuple(req.exts))}
-        new_files_paths = self._list_files(req.docs_src_dir, tuple(req.exts))
+        
+        # 1. 查询数据库中已有文档的 MD5 集合
         existing_md5s: set[str] = set()
         with self._db.get_session() as db:
             from deepinsight.databases.models.knowledge import KnowledgeDocument
@@ -478,12 +479,18 @@ explores the interaction of computer systems with related areas such as computer
                 KnowledgeDocument.md5.isnot(None)
             ).all()
             existing_md5s = {row[0] for row in md5_rows if row[0] is not None}
-        if existing_md5s:
-            add_paths = [p for p in new_files_paths if compute_md5(p) not in existing_md5s]
-        else:
-            add_paths = [p for p in new_files_paths if os.path.basename(p) not in old_files]
+        
+        # 2. 获取源文件夹中的所有文件
+        new_files_paths = self._list_files(req.docs_src_dir, tuple(req.exts))
+        
+        # 3. 过滤：计算每个文件的 MD5，不在数据库中的需要解析
+        add_paths = [p for p in new_files_paths if compute_md5(p) not in existing_md5s]
+        
+        # 4. 如果没有新文件，直接返回
         if not add_paths:
             return
+        
+        # 5. 复制新文件到 root_dir
         for src in add_paths:
             name = os.path.basename(src)
             dst = os.path.join(existing_root, name)

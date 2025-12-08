@@ -1,17 +1,57 @@
+import logging
+import json
+from typing import Callable
+
 from google.ai.generativelanguage_v1beta.types import Tool as GenAITool
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
-from langchain_core.messages import MessageLikeRepresentation, filter_messages
+from langchain.tools.tool_node import ToolCallRequest
+from langchain_core.messages import MessageLikeRepresentation, filter_messages, ToolMessage
+from langchain.agents.middleware import AgentMiddleware
 
 
 from deepinsight.core.types.research import ResearchComplete, think_tool
-from deepinsight.core.types.graph_config import SearchAPI
+from deepinsight.core.types.graph_config import SearchAPI, RetrievalType
 from deepinsight.core.tools.tavily_search import tavily_search
+from deepinsight.core.tools.ragflow_retrival import KnowledgeTool
 from deepinsight.core.utils.mcp_utils import MCPClientUtils
 from deepinsight.core.utils.research_utils import parse_research_config
+from deepinsight.service.rag.engine import RAGEngine
 
-async def get_search_tools(search_apis: list[SearchAPI]):
+
+def create_retrieval_tool(retrieval_type: RetrievalType, config: RunnableConfig):
+    """Factory function to create retrieval tools based on retrieval type.
+    
+    Args:
+        retrieval_type: The type of retrieval engine (RAGFLOW, LLAMAINDEX, or LIGHTRAG)
+        config: Runtime configuration containing retrieval configs
+    
+    Returns:
+        LangChain Tool instance for the specified retrieval type
+        
+    Raises:
+        ValueError: If the retrieval type is not supported or config is missing
+    """
+    rc = parse_research_config(config)
+    retrieval_config = rc.retrieval_config
+    
+    if not retrieval_config or retrieval_type not in retrieval_config:
+        raise ValueError(f"{retrieval_type} retrieval config is not configured.")
+    
+    # For RAGFlow, use the existing KnowledgeTool
+    if retrieval_type == RetrievalType.RAGFLOW:
+        return KnowledgeTool.knowledge_retrieve
+        
+    # For local engines (LlamaIndex, LightRAG), use RAGEngine
+    if retrieval_type in [RetrievalType.LLAMAINDEX, RetrievalType.LIGHTRAG]:
+        engine = RAGEngine.from_retrieval_config(retrieval_config[retrieval_type])
+        return engine.as_tool(retrieval_config[retrieval_type])
+    
+    raise ValueError(f"Unsupported retrieval type: {retrieval_type}")
+
+
+async def get_search_tools(search_apis: list[SearchAPI], config: RunnableConfig = None):
     """Configure and return search tools based on the specified API providers.
 
     Args:
@@ -57,8 +97,17 @@ async def get_search_tools(search_apis: list[SearchAPI]):
                 server_name="conference-static")
             tools.extend(query_tools)
         elif api == SearchAPI.RAG_RETRIVAL:
-            pass
-            # tools.append(KnowledgeTool.knowledge_retrieve)
+            # Use the factory to create retrieval tools based on configured retrieval types
+            rc = parse_research_config(config)
+            retrieval_config = rc.retrieval_config
+            # Add all configured retrieval tools
+            for retrieval_type in retrieval_config.keys():
+                try:
+                    retrieval_tool = create_retrieval_tool(retrieval_type, config)
+                    tools.append(retrieval_tool)
+                except ValueError as e:
+                    # Log but continue if a specific retrieval type fails
+                    logging.warning(f"Failed to create retrieval tool for {retrieval_type}: {e}")
 
     return tools
 
@@ -77,7 +126,7 @@ async def get_all_tools(config: RunnableConfig):
     # Add configured search tools
     rc = parse_research_config(config)
     search_apis = [SearchAPI(value) for value in rc.search_api]
-    search_tools = await get_search_tools(search_apis)
+    search_tools = await get_search_tools(search_apis, config)
     tools.extend(search_tools)
 
     # Add service-configured LangChain tools from ResearchConfig
@@ -155,3 +204,49 @@ def openai_websearch_called(response):
             return True
 
     return False
+
+class CoerceToolOutput(AgentMiddleware):
+    def wrap_tool_call(
+            self,
+            request: ToolCallRequest,
+            handler: Callable[[ToolCallRequest], ToolMessage],
+    ) -> ToolMessage:
+        # 1. 先执行实际的工具调用，获取结果
+        result = handler(request)
+
+        # 2. 确保 tool_call['args']['messages'] 每项的 content 都是字符串
+        if isinstance(request.tool_call.get("args", {}).get("messages"), list):
+            for message in request.tool_call["args"]["messages"]:
+                if not isinstance(message.get("content"), str):
+                    # 添加更细致的类型转换，确保每个 message 的内容都被处理为字符串
+                    if isinstance(message["content"], (dict, list)):
+                        message["content"] = json.dumps(message["content"], ensure_ascii=False)
+                    else:
+                        message["content"] = str(message["content"])
+
+        # 3. 处理 ToolMessage 中的消息
+        if isinstance(result, ToolMessage):
+            if isinstance(result.content, dict):
+                # 提取消息列表，如果 content 是字典
+                messages = result.content.get("messages", [])
+            else:
+                messages = []
+
+            # 遍历 messages，确保每个 message 的 content 都是字符串
+            for message in messages:
+                if not isinstance(message.content, str):
+                    if isinstance(message.content, (dict, list)):
+                        message.content = json.dumps(message.content, ensure_ascii=False)
+                    else:
+                        message.content = str(message.content)
+
+            # 4. 最终处理 ToolMessage 的顶层 content
+            if not isinstance(result.content, str):
+                try:
+                    # 尝试将整个内容对象序列化为 JSON 字符串
+                    result.content = json.dumps(result.content, ensure_ascii=False)
+                except TypeError:
+                    # 如果无法序列化，则转为通用的字符串表示
+                    result.content = str(result.content)
+
+        return result

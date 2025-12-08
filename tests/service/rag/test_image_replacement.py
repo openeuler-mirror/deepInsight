@@ -8,7 +8,7 @@ from langchain_core.documents import Document
 from langchain_core.messages import BaseMessage, AIMessage
 
 from deepinsight.service.rag.loaders.base import ParseResult
-from deepinsight.service.rag.engine import _replace_image_link  # noqa: for unittest
+from deepinsight.service.rag.backends.lightrag_backend import _replace_image_link
 
 
 _TEST_IMAGES = {
@@ -105,13 +105,13 @@ class TestImageReplacePipeline(IsolatedAsyncioTestCase):
         self.assertEqual(target_doc.text[0].page_content, CHUNK1_WITH_2PARENT_DIR)
         self.assertEqual(target_doc.text[1].page_content, CHUNK2_WITH_2PARENT_DIR)
 
-    @patch("deepinsight.service.rag.engine._create_image_description_batch")
+    @patch("deepinsight.service.rag.backends.lightrag_backend._create_image_description_batch")
     async def test_llm_replacement(self, mock_desc: MagicMock):
         """If failed, check replace logic outside `_create_image_description_batch`."""
         mock_desc.side_effect = _mocked_descript
         await self._run_with_vlm()
 
-    @patch("deepinsight.service.rag.engine._create_image_desc_default_model")
+    @patch("deepinsight.service.rag.backends.lightrag_backend._create_image_desc_default_model")
     async def test_with_vlm(self, create_vl: MagicMock):
         """If failed and `test_llm_replacement` succeeded, check `_create_image_description_batch` itself."""
         async def _mocked_llm_invoke(msgs: list[BaseMessage], *args, **kwargs) -> AIMessage:
