@@ -21,7 +21,7 @@ class LlamaIndexParser(BaseDocumentParser):
         self._config = config
         self._file_extractor = self._init_file_extractors(config)
 
-    async def parse(self, payload: DocumentPayload, working_dir: str) -> LoaderOutput:
+    async def parse(self, payload: DocumentPayload, kb_id: int, resource_prefix: str) -> LoaderOutput:
         if not payload.source_path:
             raise ValueError("LlamaIndex parser requires payload.source_path to be provided")
         file_path = payload.source_path

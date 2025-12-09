@@ -11,6 +11,7 @@ class DocumentPayload(BaseModel):
 
     Fields:
     - doc_id: unique document id (idempotency key)
+    - binary_content: document binary content
     - raw_text: plain text content
     - source_path: original file path (optional)
     - title: optional title
@@ -20,8 +21,11 @@ class DocumentPayload(BaseModel):
     """
 
     doc_id: str = Field(..., description="Unique document ID")
+    filename: str
+    binary_content: bytes
+    """The raw binary of document file."""
     raw_text: str = Field(..., description="Document plain text")
-    source_path: Optional[str] = Field(None, description="Original file path")
+    source_path: Optional[str] = Field(None, description="Depreciated. Original file path")
     title: Optional[str] = Field(None, description="Title")
     hash: Optional[str] = Field(None, description="Content hash")
     origin: Optional[str] = Field(None, description="Source tag")

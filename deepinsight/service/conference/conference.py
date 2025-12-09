@@ -9,17 +9,22 @@
 # See the Mulan PSL v2 for more details.
 from __future__ import annotations
 
+import asyncio
 import os
+import random
 import shutil
 import logging
 from datetime import datetime
 from typing import List, Optional, Annotated
-from pydantic import BaseModel, Field, ConfigDict, ValidationError, AnyHttpUrl
 
+from pydantic import BaseModel, Field, ConfigDict, AnyHttpUrl
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from langchain_core.messages import HumanMessage
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 
+from deepinsight.service.rag.loaders.base import ParseResult
 from deepinsight.utils.file_utils import compute_md5
 from deepinsight.databases.models.academic import Conference, Paper, PaperAuthorRelation, Author
 from deepinsight.databases.models.knowledge import KnowledgeBase
@@ -49,9 +54,11 @@ from deepinsight.service.schemas.conference import (
 )
 from deepinsight.utils.progress import ProgressReporter
 from deepinsight.utils.llm_utils import init_langchain_models_from_llm_config
-from deepinsight.service.conference.paper_extractor import PaperExtractionService
-from deepinsight.service.schemas.paper_extract import ExtractPaperMetaRequest, ExtractPaperMetaFromDocsRequest, DocSegment
+from deepinsight.service.conference.paper_extractor import PaperExtractionService, PaperParseException
+from deepinsight.service.schemas.paper_extract import ExtractPaperMetaRequest, ExtractPaperMetaFromDocsRequest, \
+    DocSegment, PaperMeta
 from deepinsight.core.agent.conference_research.conf_topic import get_conference_topics
+from deepinsight.utils.file_storage.factory import get_storage_impl
 
 class ConferenceService:
     """
@@ -355,6 +362,58 @@ explores the interaction of computer systems with related areas such as computer
         # Incremental ingestion path
         await self._incremental_ingest_for_conference(kb, conf_id, req, reporter)
         return conf_id, kb.kb_id
+
+    async def get_or_create_conference(self, conf_name: str, year: int) -> tuple[int, str]:
+        with self._db.get_session() as db:  # type: Session
+            conf: Conference = db.query(Conference).filter(
+                Conference.short_name == conf_name, Conference.year == year  # type: ignore
+            ).first()
+            if conf:
+                return conf.conference_id, conf.full_name or conf_name
+        new_conf_meta = await self._query_conference_meta(conf_name, year)
+        max_retry = 3
+        for retry in range(max_retry):
+            try:
+                with self._db.get_session() as db:  # type: Session
+                    conf = Conference(
+                        full_name=new_conf_meta.full_name,
+                        short_name=conf_name,
+                        year=year,
+                        website=new_conf_meta.website,
+                        topics=new_conf_meta.topics,
+                    )
+                    db.add(conf)
+                    db.commit()
+                    return conf.conference_id, conf.full_name or conf_name
+            except IntegrityError:
+                await asyncio.sleep(random.random() * 2 + 0.5)  # retry with a random interval
+                continue
+        raise self.ConferenceQueryException("Try creating new conference with too many conflicts.")
+
+    async def ingest_single_paper(self, conference_id: int, kb_id_external: str,
+                                  filename: str, binary: bytes,
+                                  resource_prefix: str = None) -> tuple[ParseResult, PaperMeta]:
+        """API implementation for HTTP server."""
+        from deepinsight.service.rag.parsers.mineru_vl import MineruVLParser
+        from deepinsight.service.schemas.rag import DocumentPayload
+
+        storage = get_storage_impl()
+        await storage.document_images_init_bucket(kb_id_external, set_allow_anonymous=True)
+
+        if not resource_prefix:
+            resource_prefix = self._config.workspace.resource_base_uri or "../../"
+        if not resource_prefix.endswith("/"):
+            resource_prefix = resource_prefix + "/"
+        parser = MineruVLParser(self._config.rag.parser.mineru_vl)
+        doc_id = filename.replace("/", "_").replace("\\", "_")
+        parsed = await parser.parse(
+            DocumentPayload(doc_id=doc_id, filename=filename, binary_content=binary,
+                            raw_text="", source_path=filename),
+            kb_id=kb_id_external, resource_prefix=resource_prefix)
+        text = "\n\n".join(chunk.page_content for chunk in parsed.result.text)
+        extract_request = ExtractPaperMetaRequest(conference_id=conference_id, filename=filename, paper=text)
+        response = await self._paper_extractor.extract_and_store(extract_request)
+        return parsed.result, response.full_meta
 
     async def _reparse_unfinished_docs_for_conference(self, kb_id: int, conference_id: int, reporter: Optional[ProgressReporter]) -> None:
         try:

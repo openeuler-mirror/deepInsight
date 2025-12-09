@@ -65,7 +65,7 @@ class LightRAGBackend(BaseRAGBackend):
             {"page_content": chunk.page_content, "metadata": getattr(chunk, "metadata", {})}
             for chunk in text_chunks
         ]
-        file_paths = parsed.file_paths or ([payload.source_path] if payload.source_path else None)
+        file_paths = parsed.file_paths or ([payload.source_path] if payload.source_path else payload.filename)
 
         await rag.ainsert([text], ids=[payload.doc_id], file_paths=file_paths)
         chunks_count = _estimate_chunks(text)

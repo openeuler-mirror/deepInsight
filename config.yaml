@@ -17,6 +17,27 @@ llms:
       max_tokens: 4096
       timeout: 120
 
+# 文件存储服务（可选）默认使用本地存储且不提供 HTTP 访问
+file_storage:
+  type: local  # 默认 local 模式（本地磁盘）。可选： s3 （AWS S3 API 兼容的 OBS 服务）
+  # map_rule:  # 当 DeepInsight 与其他框架协同工作且共用存储服务，建议启用并编辑 map_rule 以防意外覆盖
+  #   kb_doc_image:
+  #     # 使用 HTTP API 访问解析服务时，当前版本会自动按请求的img_base_url生成为 img_base_url/{bucket}/{object} 的图片链接
+  #     # 其中doc_id使用请求中的文件名（url encoded）作为值，img_base_url默认为workspace.resource_base_uri
+  #     bucket: deepinsight  # 如果该bucket不存在，自动创建时将会同时将其设置为允许匿名读
+  #     object: parsed-doc-imgs/{kb_id}/{doc_id}/{img_path}
+  #   kb_doc_binary:
+  #     bucket: deepinsight
+  #     object: kb/original_files/{kb_id}/{doc_id}/{doc_name}
+  #   report_image:
+  #     bucket: deepinsight
+  #     object: charts/report/{img_path}
+  # s3:  # 当模式设置为 s3 时，以下三个参数为必要参数
+  #   endpoint:
+  #   ak:
+  #   sk:
+  # remote_access: false  # 是否开放存储服务的远端访问，当前总是为False
+
 # 通用工作路径配置（独立于 RAG）
 workspace:
   work_root: ./data
@@ -28,6 +49,13 @@ workspace:
   # - base_url: 拼接 base_url，适合api模式，如：http://127.0.0.1:8888/api/v1/deepinsight/charts/image/chart_123.png
   image_path_mode: base_url
   image_base_url: http://127.0.0.1:8888/api/v1/deepinsight/charts/image
+  # 在 Markdown 中由 DeepInsight 生成的图片等超链接资源使用的 uri 前缀。
+  # 对于本地运行模式，总是保持 ../../
+  # 对于使用 S3 兼容的 OBS 且允许匿名 GET 请求，可以将其设置为 OBS 服务相对浏览器的地址
+  # 由于 file_storage.remote_access 未启用，当前暂不支持使用本地存储且需要由 http 访问的场景
+  resource_base_uri: "../../"
+#  resource_base_uri: "http://127.0.0.1:8888/api/v1/deepinsight/res/". # 浏览器使用自定义转发服务时
+#  resource_base_uri: "http://127.0.0.1:9000/". # 浏览器直接访问OBS时
 
 # RAG 相关工作路径配置
 # 将作为所有 RAG 本地数据的前缀目录，例如：

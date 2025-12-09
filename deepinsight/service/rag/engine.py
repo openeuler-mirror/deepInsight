@@ -7,6 +7,7 @@ import logging
 
 from langchain_core.documents import Document as LCDocument
 
+import deepinsight.config.config as config_file
 from deepinsight.config.config import Config
 from deepinsight.config.rag_config import RAGEngineType, RAGParserType
 from deepinsight.service.rag.backends import (
@@ -41,13 +42,13 @@ class RAGEngine:
     async def ingest_document(
         self,
         doc: DocumentPayload,
-        working_dir: str,
+        working_dir: str, kb_id: int,
         make_knowledge_graph: bool | None = None,
     ) -> IndexResult:
         if not working_dir:
             raise ValueError("working_dir must not be empty")
         os.makedirs(working_dir, exist_ok=True)
-        parsed = await self._prepare_document(doc, working_dir)
+        parsed = await self._prepare_document(doc, kb_id)
         return await self._backend.ingest(
             doc,
             working_dir,
@@ -217,7 +218,7 @@ class RAGEngine:
             return LlamaIndexParser(parser_cfg.llamaindex)
         return None
 
-    async def _prepare_document(self, doc: DocumentPayload, working_dir: str) -> LoaderOutput:
+    async def _prepare_document(self, doc: DocumentPayload, kb_id: int) -> LoaderOutput:
         if doc.raw_text and doc.raw_text.strip():
             parse_result = ParseResult(
                 text=[
@@ -227,12 +228,12 @@ class RAGEngine:
                     )
                 ]
             )
-            file_paths = [doc.source_path] if doc.source_path else None
+            file_paths = [doc.source_path] if doc.source_path else doc.filename
             return LoaderOutput(result=parse_result, file_paths=file_paths)
 
         if not self._parser:
             raise ValueError("Document parser not configured, raw_text missing.")
-        return await self._parser.parse(doc, working_dir)
+        return await self._parser.parse(doc, kb_id, config_file.CONFIG.workspace.resource_base_uri)
 
 
 __all__ = [

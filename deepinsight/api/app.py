@@ -9,6 +9,7 @@
 # See the Mulan PSL v2 for more details.
 
 import argparse
+import base64
 import logging
 import os
 import re
@@ -19,15 +20,17 @@ from urllib.parse import quote
 
 import dotenv
 import uvicorn
-from fastapi import FastAPI, APIRouter, Header
+from fastapi import FastAPI, APIRouter, Body, Header
 from fastapi.responses import HTMLResponse
 from fastapi.responses import FileResponse
 from starlette import status
 
 from deepinsight.config.config import load_config
+from deepinsight.service.conference import ConferenceService
 from deepinsight.service.research.research import ResearchService
 from deepinsight.service.conference.paper_extractor import PaperExtractionService, PaperParseException
 from deepinsight.utils.log_utils import initRootLogger
+from deepinsight.utils.file_storage import get_storage_impl
 from deepinsight.core.utils.research_utils import load_expert_config
 from deepinsight.service.schemas.common import ResponseModel
 from deepinsight.service.schemas.research import ResearchRequest, PPTGenerateRequest, PdfGenerateRequest
@@ -58,6 +61,8 @@ config = load_config(args.config)
 
 research_service = ResearchService(config)
 paper_extract_service = PaperExtractionService(config)
+conference_service = ConferenceService(config)
+get_storage_impl(config)
 # 加载专家数据
 experts = load_expert_config(args.expert_config)
 router = APIRouter(tags=["deepinsight"])
@@ -142,6 +147,66 @@ async def parse_paper_meta(request: ExtractPaperMetaRequest):
     """Parse metadata (title, author, abstract, keywords and number of sections) from a paper in Markdown format."""
     try:
         return await paper_extract_service.extract_and_store(request)
+    except PaperParseException as e:
+        return dict(error=str(e))
+
+
+@router.post("/deepinsight/paper/conference_meta")
+async def get_conference_meta(
+        kb_id: str = Body(description="ID of knowledge base"),
+        kb_name: str = Body(description="Name of knowledge base. Currently should be in format 'conf_name+year'"
+                                        " such as 'CAD+2025'.")
+):
+    """Get or create a conference of the specified knowledge base if it exists.
+
+    If no conference refer to this knowledge base, create a new conference record by `kb_name`."""
+    _ = kb_id  # unsupported yet
+    split = kb_name.rsplit("+", 1)
+    if len(split) != 2 or not split[-1].isdigit():
+        return dict(error="Only knowledge base named as 'CONF+year' such as 'CAD+2025' can use Paper parser. "
+                          "Rename your database or select another document parser.")
+    conf_name = split[0]
+    year = int(split[1])
+    try:
+        id_, fullname = await conference_service.get_or_create_conference(conf_name, year)
+        return dict(id=id_, fullname=fullname)
+    except conference_service.ConferenceQueryException as e:
+        return dict(error=str(e))
+
+
+@router.post("/deepinsight/paper/parse/binary")
+async def parse_paper_binary(
+    filename: str = Body(),
+    binary: str = Body(description="File binary in Base64 format"),
+    conference_id: int = Body(),
+    external_kb_id: str = Body(description="Only for storage and generate image URL."),
+    from_page: int | None = Body(default=None, description="(todo) The first page index to parse (included). "
+                                                           "`None` means the first page of the file."),
+    to_page: int | None = Body(default=None, description="(todo) The last page index to parse (included). "
+                                                         "`None` means the last page of the file."),
+    img_base_url: str | None = Body(
+        default=None,
+        description="The prefix part of images in parsed doc. Default is the value of `workspace.resource_base_uri` "
+                    "in config file (whose default value is '../../'.")
+):
+    """Parse metadata (title, author, abstract, keywords and number of sections) from a paper binary file."""
+    _ = from_page, to_page
+    binary = base64.b64decode(binary)
+    try:
+        doc, meta = await conference_service.ingest_single_paper(
+            conference_id=conference_id, kb_id_external=external_kb_id, filename=filename,
+            binary=binary, resource_prefix=img_base_url)
+        return dict(
+            title=meta.paper_title,
+            author_info=meta.author_info.model_dump(),
+            abstract=meta.abstract,
+            keywords=meta.keywords,
+            topic=meta.topic,
+            sections=[
+                (chunk.page_content, chunk.page_content.lstrip().split("\n", 1)[0].strip(" \n#"))
+                for chunk in doc.text
+            ]
+        )
     except PaperParseException as e:
         return dict(error=str(e))
 

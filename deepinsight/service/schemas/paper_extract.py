@@ -86,3 +86,5 @@ class ExtractPaperMetaResponse(BaseModel):
     conference_id: int = Field(..., description="ID of the conference")
     author_ids: List[int] = Field(default_factory=list, description="List of author IDs")
     topic: Optional[str] = Field(None, description="Main topic of the paper")
+    full_meta: PaperMeta
+    """All extracted information of this paper."""

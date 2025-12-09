@@ -23,6 +23,7 @@ class KnowledgeBaseCreateRequest(BaseModel):
 class KnowledgeDocumentCreateRequest(BaseModel):
     kb_id: int
     file_path: str
+    binary: bytes | None = None
     file_name: Optional[str] = None
     md5: Optional[str] = None
 

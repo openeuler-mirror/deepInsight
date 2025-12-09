@@ -1,5 +1,5 @@
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import Optional, Annotated, Literal
+from pydantic import BaseModel, Field, AnyHttpUrl
 
 
 class WorkspaceConfig(BaseModel):
@@ -31,3 +31,10 @@ class WorkspaceConfig(BaseModel):
         default=None,
         description="PPT 模板路径（用于会议洞察报告生成）",
     )
+
+    resource_base_uri: Literal["../../"] | Annotated[str, AnyHttpUrl] = "../../"
+    """在 Markdown 中由 DeepInsight 生成的图片等超链接资源使用的 uri 前缀。
+    
+    对于本地运行模式，总是保持 ../../
+    对于需要由 http 访问的场景，则应当开启 file_storage.remote_access 且与其设置或其他可访问方式保持一致。
+    """

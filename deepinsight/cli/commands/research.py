@@ -308,6 +308,8 @@ def run_expert_review(question: str, insight_service: ResearchService, conversat
     )
 
 def run_insight(config: Config, gen_pdf: bool = True, initial_topic: str | None = None) -> int:
+    from deepinsight.utils.file_storage import get_storage_impl
+    get_storage_impl(config)
     insight_service = ResearchService(config)
     with Live(refresh_per_second=4, vertical_overflow="ellipsis") as live:
         live.console.print("[bold green]✅ DeepInsight CLI 已成功启动！输入 'exit' 或 'quit' 可退出程序。[/bold green]")
