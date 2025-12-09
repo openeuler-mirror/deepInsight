@@ -32,10 +32,10 @@ file_storage:
   #   report_image:
   #     bucket: deepinsight
   #     object: charts/report/{img_path}
-  s3:  # 当模式设置为 s3 时，以下三个参数为必要参数
-    endpoint: 
-    ak: 
-    sk: 
+  # s3:  # 当模式设置为 s3 时，以下三个参数为必要参数
+  #   endpoint:
+  #   ak:
+  #   sk:
   # remote_access: false  # 是否开放存储服务的远端访问，当前总是为False
 
 # 通用工作路径配置（独立于 RAG）
