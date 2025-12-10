@@ -13,7 +13,6 @@ from langchain_tavily import TavilySearch
 
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.core.utils.tool_utils import CoerceToolOutput
-from deepinsight.core.utils.context_utils import SummarizationMiddleware
 from deepinsight.core.tools.file_system import register_fs_tools, fs_instance
 
 
@@ -100,7 +99,6 @@ async def analyze_single_keynote(keynote_info: str, output_dir: str, config: Run
         from deepagents import create_deep_agent
         middleware = [
             CoerceToolOutput(),
-            SummarizationMiddleware(model=rc.default_model),
             ModelFallbackMiddleware(
                 rc.default_model,
                 rc.default_model,
