@@ -39,6 +39,7 @@ from deepinsight.core.utils.llm_token_utils import (
     is_token_limit_exceeded,
     get_model_token_limit,
 )
+from deepinsight.core.utils.progress_utils import progress_stage
 
 
 class ConductResearch(BaseModel):
@@ -150,7 +151,7 @@ async def wait_user_clarification(state: AgentState):
         "messages": [HumanMessage(content=user_reply)]
     }
 
-
+@progress_stage("制定研究概要")
 async def write_research_brief(state: AgentState, config: RunnableConfig):
     """Transform user messages into a structured research brief and initialize supervisor."""
     # Step 1: Set up the research model (without structured output)
@@ -230,7 +231,7 @@ async def wait_user_confirm_research_brief(state: AgentState, config: RunnableCo
         }
     }
 
-
+@progress_stage("生成研究大纲")
 async def generate_report_outline(state: AgentState, config: RunnableConfig):
     # Step 1: Extract research findings and prepare state cleanup
     notes = state.get("notes", [])
@@ -512,7 +513,7 @@ async def publish_result(state: AgentState, config: RunnableConfig):
     ))
     return state
 
-
+@progress_stage("生成研究主题指令")
 async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[Literal["supervisor_tools"]]:
     """Lead research supervisor that plans research strategy and delegates to researchers.
 
@@ -555,7 +556,7 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
         }
     )
 
-
+@progress_stage("执行研究主题")
 async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Command[Literal["supervisor", "__end__"]]:
     """Execute tools called by the supervisor, including research delegation and strategic thinking.
 

@@ -11,6 +11,7 @@ from langgraph.constants import START, END
 from langgraph.config import get_stream_writer
 from langgraph.graph import StateGraph
 from langgraph.types import Command
+from deepinsight.core.utils.progress_utils import progress_stage
 
 from deepinsight.core.types.research import (
     ErrorResult,
@@ -105,7 +106,7 @@ async def execute_tool_safely(tool, args, config, name):
         writer(error_response)
         return f"Error executing tool: {str(e)}"
 
-
+@progress_stage("规划主题研究")
 async def topic_researcher(state: ResearcherState, config: RunnableConfig) -> Command[Literal["researcher_tools"]]:
     """Individual researcher that conducts focused research on specific topics.
 
@@ -173,7 +174,7 @@ async def topic_researcher(state: ResearcherState, config: RunnableConfig) -> Co
         }
     )
 
-
+@progress_stage("执行主题研究")
 async def topic_tools_exec(state: ResearcherState, config: RunnableConfig) -> Command[
     Literal["researcher", "compress_research"]]:
     """Execute tools called by the researcher, including search tools and strategic thinking.
@@ -304,7 +305,7 @@ async def topic_tools_exec(state: ResearcherState, config: RunnableConfig) -> Co
         logging.error(f"Exception traceback: {traceback.format_exc()}")
         raise
 
-
+@progress_stage("搜索结果压缩")
 async def topic_results_compress(state: ResearcherState, config: RunnableConfig):
     """Compress and synthesize research findings into a concise, structured summary.
 

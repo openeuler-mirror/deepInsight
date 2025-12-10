@@ -15,6 +15,7 @@ from langgraph.config import get_stream_writer
 from langgraph.constants import END
 from langgraph.graph import StateGraph, add_messages
 from langgraph.types import Command, interrupt
+from deepinsight.core.utils.progress_utils import progress_stage
 
 from deepinsight.core.tools.best_paper_analysis import batch_analyze_papers
 from deepinsight.core.tools.paper_statistic import (
@@ -184,7 +185,7 @@ async def construct_sub_config(config, prompt_group: ConferenceGraphNodeType):
         "tools": tools,
     }
 
-
+@progress_stage("会议概览信息收集")
 async def conference_overview_node(state: ConferenceState, config: RunnableConfig):
     result = await deep_research_graph.with_config(
         configurable=await construct_sub_config(config, ConferenceGraphNodeType.CONFERENCE_OVERVIEW)
@@ -195,7 +196,7 @@ async def conference_overview_node(state: ConferenceState, config: RunnableConfi
         "conference_overview": result["final_report"]
     }
 
-
+@progress_stage("会议统计分析")
 async def conference_submission_node(state: ConferenceState, config: RunnableConfig):
     result = await conf_stat_graph.with_config(
         configurable=await construct_sub_config(config, ConferenceGraphNodeType.CONFERENCE_SUBMISSION)
@@ -206,7 +207,7 @@ async def conference_submission_node(state: ConferenceState, config: RunnableCon
         "conference_submission": result["static_summary"]
     }
 
-
+@progress_stage("会议keynotes分析")
 async def conference_keynotes_node(state: ConferenceState, config: RunnableConfig):
     result = await deep_research_graph.with_config(
         configurable=await construct_sub_config(config, ConferenceGraphNodeType.CONFERENCE_KEYNOTE)
@@ -217,7 +218,7 @@ async def conference_keynotes_node(state: ConferenceState, config: RunnableConfi
         "conference_keynotes": result["final_report"]
     }
 
-
+@progress_stage("会议主题分析")
 async def conference_topic_node(state: ConferenceState, config: RunnableConfig):
     result = await deep_research_graph.with_config(
         configurable=await construct_sub_config(config, ConferenceGraphNodeType.CONFERENCE_TOPIC)
@@ -228,7 +229,7 @@ async def conference_topic_node(state: ConferenceState, config: RunnableConfig):
         "conference_topic": result["final_report"]
     }
 
-
+@progress_stage("会议最佳论文分析")
 async def conference_best_paper_node(state: ConferenceState, config: RunnableConfig):
     result = await deep_research_graph.with_config(
         configurable=await construct_sub_config(config, ConferenceGraphNodeType.CONFERENCE_BEST_PAPER)
@@ -244,7 +245,7 @@ async def conference_best_paper_node(state: ConferenceState, config: RunnableCon
         "conference_best_papers": paper_file_content,
     }
 
-
+@progress_stage("洞察总结")
 async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
     rc = parse_research_config(config)
     model = rc.get_model()
