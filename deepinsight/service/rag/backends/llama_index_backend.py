@@ -92,10 +92,36 @@ class LlamaIndexBackend(BaseRAGBackend):
         
 
     def _init_global_settings(self) -> None:
-        Settings.embed_model = HuggingFaceEmbedding(
-            model_name=self._engine_cfg.embed_model,
-            device=self._engine_cfg.embed_device,
-        )
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Get model name and device
+        model_name = self._engine_cfg.embed_model
+        device = self._engine_cfg.embed_device
+        
+        # Check for local model cache
+        cache_dir = os.environ.get('SENTENCE_TRANSFORMERS_HOME') or os.environ.get('HF_HOME')
+        
+        try:
+            logger.info(f"Loading embedding model: {model_name}, device: {device}")
+            if cache_dir:
+                logger.info(f"Model cache directory: {cache_dir}")
+            
+            Settings.embed_model = HuggingFaceEmbedding(
+                model_name=model_name,
+                device=device,
+                cache_folder=cache_dir,
+            )
+            logger.info(f"Embedding model loaded successfully: {model_name}")
+        except Exception as e:
+            logger.error(f"Failed to load embedding model: {model_name}")
+            logger.error(f"Error details: {str(e)}")
+            logger.error(f"Please ensure:")
+            logger.error(f"  1. Network access to HuggingFace (https://huggingface.co)")
+            logger.error(f"  2. Or model is downloaded to local cache directory: {cache_dir}")
+            logger.error(f"  3. Or use mirror site by setting HF_ENDPOINT environment variable")
+            raise
+        
         llm_model = self._engine_cfg.llm_model
         llm_api_key = self._engine_cfg.llm_api_key
         llm_base_url = self._engine_cfg.llm_base_url

@@ -44,18 +44,9 @@ workspace:
   # 会议洞察报告 PPT 模板路径（支持环境变量展开，如 ${PPT_TEMPLATE_PATH}）
   conference_ppt_template_path: ./templates/conference_template.pptx
   chart_image_dir: charts
-  # 使用相对路径还是 base_url 模式返回图表图片 URL
-  # - relative: 直接返回图片相对路径，适合本地命令行，如：/deepinsight/charts/image/chart_123.png
-  # - base_url: 拼接 base_url，适合api模式，如：http://127.0.0.1:8888/api/v1/deepinsight/charts/image/chart_123.png
-  image_path_mode: base_url
-  image_base_url: http://127.0.0.1:8888/api/v1/deepinsight/charts/image
-  # 在 Markdown 中由 DeepInsight 生成的图片等超链接资源使用的 uri 前缀。
-  # 对于本地运行模式，总是保持 ../../
-  # 对于使用 S3 兼容的 OBS 且允许匿名 GET 请求，可以将其设置为 OBS 服务相对浏览器的地址
-  # 由于 file_storage.remote_access 未启用，当前暂不支持使用本地存储且需要由 http 访问的场景
-  resource_base_uri: "../../"
-#  resource_base_uri: "http://127.0.0.1:8888/api/v1/deepinsight/res/". # 浏览器使用自定义转发服务时
-#  resource_base_uri: "http://127.0.0.1:9000/". # 浏览器直接访问OBS时
+  image_path_mode: ${WORKSPACE_IMAGE_PATH_MODE}
+  image_base_url: ${WORKSPACE_IMAGE_BASE_URL}
+  resource_base_uri: ${WORKSPACE_RESOURCE_BASE_URI}
 
 # RAG 相关工作路径配置
 # 将作为所有 RAG 本地数据的前缀目录，例如：

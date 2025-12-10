@@ -22,6 +22,19 @@ COPY pyproject.toml poetry.lock ./
 
 RUN uv pip install --system -r pyproject.toml --extra-index-url ${PIP_INDEX_URL}
 
+# 设置 HuggingFace 模型缓存目录和镜像站点
+ENV HF_HOME=/deepinsight/models
+ENV TRANSFORMERS_CACHE=/deepinsight/models
+ENV SENTENCE_TRANSFORMERS_HOME=/deepinsight/models
+ENV HF_ENDPOINT=https://hf-mirror.com
+
+# 复制配置文件和下载脚本
+COPY config.yaml ./
+COPY scripts/download_models.py ./scripts/
+
+# 根据 config.yaml 动态下载模型
+RUN python3 scripts/download_models.py
+
 COPY . .
 
 RUN pip install --no-deps .
