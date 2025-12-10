@@ -28,7 +28,7 @@ from deepinsight.core.tools.paper_statistic import (
 )
 from deepinsight.core.utils.mcp_utils import MCPClientUtils
 from deepinsight.core.utils.research_utils import parse_research_config
-from deepinsight.core.types.graph_config import ResearchConfig
+from deepinsight.core.types.graph_config import ResearchConfig, SearchAPI
 from deepinsight.core.types.research import FinalResult
 
 from deepinsight.core.agent.deep_research.supervisor import graph as deep_research_graph
@@ -153,10 +153,7 @@ async def wait_user_clarify_node(state: ConferenceState):
 
 
 async def construct_sub_config(config, prompt_group: ConferenceGraphNodeType):
-    parent_configurable = config.get("configurable", {})
     tools = []
-    if parent_configurable.get("tools"):
-        tools.extend(parent_configurable["tools"])
     if prompt_group == ConferenceGraphNodeType.CONFERENCE_BEST_PAPER:
         tools.append(batch_analyze_papers)
     elif prompt_group == ConferenceGraphNodeType.CONFERENCE_SUBMISSION:
@@ -183,6 +180,7 @@ async def construct_sub_config(config, prompt_group: ConferenceGraphNodeType):
         "allow_edit_report_outline": False,
         "allow_publish_result": False,
         "tools": tools,
+        "search_api": [SearchAPI.TAVILY],
     }
 
 @progress_stage("会议概览信息收集")
