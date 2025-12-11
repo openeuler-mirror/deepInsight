@@ -1,6 +1,6 @@
 import logging
 import json
-from typing import Callable
+from typing import Callable, Awaitable
 
 from google.ai.generativelanguage_v1beta.types import Tool as GenAITool
 
@@ -250,3 +250,49 @@ class CoerceToolOutput(AgentMiddleware):
                     result.content = str(result.content)
 
         return result
+
+    async def wrap_tool_call(
+            self,
+            request: ToolCallRequest,
+            handler: Callable[[ToolCallRequest], Awaitable[ToolMessage]],
+    ) -> ToolMessage:
+        # 1. 先执行实际的工具调用，获取结果
+        result = await handler(request)
+
+        # 2. 确保 tool_call['args']['messages'] 每项的 content 都是字符串
+        if isinstance(request.tool_call.get("args", {}).get("messages"), list):
+            for message in request.tool_call["args"]["messages"]:
+                if not isinstance(message.get("content"), str):
+                    # 添加更细致的类型转换，确保每个 message 的内容都被处理为字符串
+                    if isinstance(message["content"], (dict, list)):
+                        message["content"] = json.dumps(message["content"], ensure_ascii=False)
+                    else:
+                        message["content"] = str(message["content"])
+
+        # 3. 处理 ToolMessage 中的消息
+        if isinstance(result, ToolMessage):
+            if isinstance(result.content, dict):
+                # 提取消息列表，如果 content 是字典
+                messages = result.content.get("messages", [])
+            else:
+                messages = []
+
+            # 遍历 messages，确保每个 message 的 content 都是字符串
+            for message in messages:
+                if not isinstance(message.content, str):
+                    if isinstance(message.content, (dict, list)):
+                        message.content = json.dumps(message.content, ensure_ascii=False)
+                    else:
+                        message.content = str(message.content)
+
+            # 4. 最终处理 ToolMessage 的顶层 content
+            if not isinstance(result.content, str):
+                try:
+                    # 尝试将整个内容对象序列化为 JSON 字符串
+                    result.content = json.dumps(result.content, ensure_ascii=False)
+                except TypeError:
+                    # 如果无法序列化，则转为通用的字符串表示
+                    result.content = str(result.content)
+
+        return result
+
