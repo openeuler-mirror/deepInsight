@@ -251,7 +251,7 @@ class CoerceToolOutput(AgentMiddleware):
 
         return result
 
-    async def wrap_tool_call(
+    async def awrap_tool_call(
             self,
             request: ToolCallRequest,
             handler: Callable[[ToolCallRequest], Awaitable[ToolMessage]],

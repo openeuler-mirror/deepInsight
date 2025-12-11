@@ -15,6 +15,7 @@ from langchain_core.messages import HumanMessage
 from deepinsight.core.types.graph_config import ResearchConfig
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.core.types.research import (
+    ErrorResult,
     WebSearchResult, 
     ToolType, 
     ToolUnifiedResponse,
@@ -160,6 +161,16 @@ async def tavily_search(
     except Exception as e:
         error_message = f"Tavily search failed with error: {type(e).__name__}: {e}"
         logging.error(error_message)
+        writer = get_stream_writer()
+        writer(ToolUnifiedResponse(
+            parent_message_id=config.get("metadata", {}).get("parent_message_id", None),
+            type=ToolType.web_search,
+            name="tavily_search",
+            args={"queries": queries},
+            result=ErrorResult(
+                error=error_message
+            )
+        ))
         return error_message
 
     # Step 2: Deduplicate results by URL to avoid processing the same content multiple times
