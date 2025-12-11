@@ -25,6 +25,7 @@ from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 
 from deepinsight.service.rag.loaders.base import ParseResult
+from deepinsight.utils.file_storage.identify import KbDocImage
 from deepinsight.utils.file_utils import compute_md5
 from deepinsight.databases.models.academic import Conference, Paper, PaperAuthorRelation, Author
 from deepinsight.databases.models.knowledge import KnowledgeBase
@@ -398,7 +399,7 @@ explores the interaction of computer systems with related areas such as computer
         from deepinsight.service.schemas.rag import DocumentPayload
 
         storage = get_storage_impl()
-        await storage.document_images_init_bucket(kb_id_external, set_allow_anonymous=True)
+        await storage.object_init_bucket(KbDocImage(kb_id=kb_id_external), set_allow_anonymous=True)
 
         if not resource_prefix:
             resource_prefix = self._config.workspace.resource_base_uri or "../../"

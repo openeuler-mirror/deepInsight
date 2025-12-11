@@ -1,5 +1,10 @@
+import os
 from typing import Optional, Annotated, Literal
 from pydantic import BaseModel, Field, AnyHttpUrl
+
+
+def _get_resource_base_uri():
+    return os.getenv("WORKSPACE_RESOURCE_BASE_URI") or "../../"
 
 
 class WorkspaceConfig(BaseModel):
@@ -32,7 +37,7 @@ class WorkspaceConfig(BaseModel):
         description="PPT 模板路径（用于会议洞察报告生成）",
     )
 
-    resource_base_uri: Literal["../../"] | Annotated[str, AnyHttpUrl] = "../../"
+    resource_base_uri: Annotated[Literal["../../"] | AnyHttpUrl, Field(default_factory=_get_resource_base_uri)]
     """在 Markdown 中由 DeepInsight 生成的图片等超链接资源使用的 uri 前缀。
     
     对于本地运行模式，总是保持 ../../

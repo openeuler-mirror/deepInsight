@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 
 from deepinsight.utils.file_storage import get_storage_impl
+from deepinsight.utils.file_storage.identify import KbDocBinary
 from deepinsight.utils.file_utils import compute_md5
 from deepinsight.config.config import Config
 from deepinsight.databases.connection import Database
@@ -324,8 +325,10 @@ class KnowledgeService:
             extracted_text: Optional[str] = None
             idx = None
             try:
-                binary = await get_storage_impl().knowledge_file_get(kb.kb_id, kb.owner_type, kb.owner_id, str(doc_id),
-                                                                     doc.file_name or os.path.basename(doc.file_path))
+                binary = await get_storage_impl().object_get(
+                    KbDocBinary(kb_id=kb.kb_id, owner_type=kb.owner_type, owner_id=kb.owner_id, doc_id=doc_id,
+                                doc_name=doc.file_name or os.path.basename(doc.file_path))
+                )
                 payload = DocumentPayload(
                     doc_id=str(doc.doc_id),
                     filename=doc.file_name or os.path.basename(doc.file_path),

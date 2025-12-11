@@ -18,21 +18,9 @@ llms:
       timeout: 120
 
 # 文件存储服务（可选）默认使用本地存储且不提供 HTTP 访问
-file_storage:
-  type: local  # 默认 local 模式（本地磁盘）。可选： s3 （AWS S3 API 兼容的 OBS 服务）
-  # map_rule:  # 当 DeepInsight 与其他框架协同工作且共用存储服务，建议启用并编辑 map_rule 以防意外覆盖
-  #   kb_doc_image:
-  #     # 使用 HTTP API 访问解析服务时，当前版本会自动按请求的img_base_url生成为 img_base_url/{bucket}/{object} 的图片链接
-  #     # 其中doc_id使用请求中的文件名（url encoded）作为值，img_base_url默认为workspace.resource_base_uri
-  #     bucket: deepinsight  # 如果该bucket不存在，自动创建时将会同时将其设置为允许匿名读
-  #     object: parsed-doc-imgs/{kb_id}/{doc_id}/{img_path}
-  #   kb_doc_binary:
-  #     bucket: deepinsight
-  #     object: kb/original_files/{kb_id}/{doc_id}/{doc_name}
-  #   report_image:
-  #     bucket: deepinsight
-  #     object: charts/report/{img_path}
-  # s3:  # 当模式设置为 s3 时，以下三个参数为必要参数
+#file_storage:
+#  type: local  # 环境变量名 STORAGE_TYPE 默认 local 模式（本地磁盘）。可选： s3 （AWS S3 API 兼容的 OBS 服务）
+  # s3:  # 当模式设置为 s3 时，以下三个参数为必要参数，或均通过环境变量 S3_ENDPOINT, S3_AK, S3_SK 设置
   #   endpoint:
   #   ak:
   #   sk:
@@ -46,7 +34,7 @@ workspace:
   chart_image_dir: charts
   image_path_mode: ${WORKSPACE_IMAGE_PATH_MODE}
   image_base_url: ${WORKSPACE_IMAGE_BASE_URL}
-  resource_base_uri: ${WORKSPACE_RESOURCE_BASE_URI}
+#  resource_base_uri: 可从 WORKSPACE_RESOURCE_BASE_URI 环境变量配置
 
 # RAG 相关工作路径配置
 # 将作为所有 RAG 本地数据的前缀目录，例如：

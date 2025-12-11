@@ -9,7 +9,7 @@ from typing import Type, TypeVar, TYPE_CHECKING
 
 from pydantic import BaseModel, PrivateAttr
 
-from deepinsight.config.file_storage_config import ObsMappingConfig
+from deepinsight.utils.file_storage.identify import BaseIdentifier
 
 if TYPE_CHECKING:
     from deepinsight.config.config import Config
@@ -72,7 +72,6 @@ class BaseFileStorage(ABC, BaseModel):
     - Store images for a document.
     - Store images for a report.
     """
-    keymap: ObsMappingConfig = ObsMappingConfig()
     _warned_unsupported_method: set[str] = PrivateAttr(default_factory=set)
 
     def __aenter__(self):
@@ -122,61 +121,46 @@ class BaseFileStorage(ABC, BaseModel):
                            f" and has no efforts.")
 
     # utils begin
-    async def document_images_init_bucket(self, knowledge_base_id: str, exist_ok: bool = True,
-                                          set_allow_anonymous: bool = False) -> None:
-        bucket = self.keymap.kb_doc_image.bucket.format(kb_id=knowledge_base_id)
+    async def object_put(self, identify: BaseIdentifier, content: bytes | dict[str, bytes],
+                         auto_create_bucket=False, set_allow_anonymous: bool = False) -> None:
+        bucket = identify.bucket_name()
+        obj = identify.object_name()
+        if isinstance(content, bytes):
+            try:
+                await self.file_add(bucket, obj, content)
+                return
+            except StorageError as e:
+                if not auto_create_bucket or e.reason != e.Reason.BUCKET_NOT_FOUND:
+                    raise
+            await self.object_init_bucket(identify, exist_ok=True, set_allow_anonymous=set_allow_anonymous)
+            await self.file_add(bucket, obj, content)
+            return
+
+        if obj and not obj.endswith("/"):
+            obj += "/"
+        tasks = list(content.items())
+        if not tasks:
+            return
+        first_task = tasks[0]
+        try:
+            await self.file_add(bucket, obj + first_task[0], first_task[1])
+        except StorageError as e:
+            if not auto_create_bucket or e.reason != e.Reason.BUCKET_NOT_FOUND:
+                raise
+            await self.object_init_bucket(identify, exist_ok=True, set_allow_anonymous=set_allow_anonymous)
+            await self.file_add(bucket, obj + first_task[0], first_task[1])
+        tasks = tasks[1:]
+        if not tasks:
+            return
+        await asyncio.gather(*(self.file_add(bucket, obj + name, binary) for name, binary in tasks))
+
+    async def object_get(self, identify: BaseIdentifier) -> bytes:
+        bucket = identify.bucket_name()
+        obj = identify.object_name()
+        return await self.file_get(bucket, obj)
+
+    async def object_init_bucket(self, identify: BaseIdentifier,
+                                 exist_ok: bool = True, set_allow_anonymous: bool = False):
+        bucket = identify.bucket_name()
         if await self.bucket_create(bucket, exist_ok=exist_ok) and set_allow_anonymous:
             await self.bucket_allow_anonymous_get(bucket)
-
-    async def document_images_store(self, knowledge_base_id: str, document_id: str,
-                                    images: dict[str, bytes]) -> dict[str, str]:
-        """Store images and returns a mapping from origin image path to its stored path as {bucket}/{object}."""
-        if not images:
-            return {}
-        bucket = self.keymap.kb_doc_image.bucket.format(kb_id=knowledge_base_id)
-        obj_names = {
-            name: self.keymap.kb_doc_image.object.format(kb_id=knowledge_base_id, doc_id=document_id, img_path=name)
-            for name in images
-        }
-        upload_tasks = [self.file_add(bucket, obj_names[name], content) for name, content in images.items()]
-        await asyncio.gather(*upload_tasks)
-        return {k: f"{bucket}/{v}" for k, v in obj_names.items()}
-
-    async def chart_store(self, name: str, content: bytes) -> None:
-        bucket = self.keymap.report_image.bucket
-        obj_name = self.keymap.report_image.object.format(img_path=name)
-        try:
-            await self.file_add(bucket, obj_name, content)
-            return
-        except StorageError as e:
-            if e.reason != e.Reason.BUCKET_NOT_FOUND:
-                raise
-        await self.bucket_create(bucket, exist_ok=True)
-        await self.file_add(bucket, obj_name, content)
-
-    async def knowledge_file_init_bucket(self, knowledge_base_id: str, owner_type: str, owner_id: str,
-                                         exist_ok: bool = True):
-        bucket = self.keymap.kb_doc_binary.bucket.format(kb_id=knowledge_base_id, owner_type=owner_type,
-                                                         owner_id=owner_id)
-        await self.bucket_create(bucket, exist_ok=exist_ok)
-
-    async def knowledge_file_get(self, knowledge_base_id: str,
-                                 owner_type: str, owner_id: str,
-                                 doc_id: str, doc_name: str) -> bytes:
-        bucket, obj_name = self._knowledge_file_info(knowledge_base_id, owner_type, owner_id, doc_id, doc_name)
-        return await self.file_get(bucket, obj_name)
-
-    async def knowledge_file_put(self, knowledge_base_id: str,
-                                 owner_type: str, owner_id: str,
-                                 doc_id: str, doc_name: str, binary: bytes) -> None:
-        bucket, obj_name = self._knowledge_file_info(knowledge_base_id, owner_type, owner_id, doc_id, doc_name)
-        await self.file_add(bucket, obj_name, binary)
-
-    def _knowledge_file_info(self, knowledge_base_id: str, owner_type: str, owner_id: str,
-                                 doc_id: str, doc_name: str) -> tuple[str, str]:
-        bucket_args = dict(kb_id=knowledge_base_id, owner_type=owner_type, owner_id=owner_id)
-        object_args = dict(kb_id=knowledge_base_id, owner_type=owner_type, owner_id=owner_id,
-                           doc_id=doc_id, doc_name=doc_name)
-        bucket = self.keymap.kb_doc_binary.bucket.format_map(bucket_args)
-        obj_name = self.keymap.kb_doc_binary.object.format_map(object_args)
-        return bucket, obj_name
