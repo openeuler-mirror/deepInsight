@@ -99,9 +99,11 @@ class ResearchService:
             # Additional filters for conference scenes (only new ones not in config.yaml)
             conference_additional_filters = {
                 "researcher_tools": True,
-                "publish_result": True,
-                "tools": True,
                 "researcher": True,
+                "publish_result": True,
+                "generate_report": True,
+                "generate_report_outline": True,
+                "tools": True,
                 "model": True,
                 "agent": True,
             }

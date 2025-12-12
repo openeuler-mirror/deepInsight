@@ -106,9 +106,7 @@ scenarios:
         clarify_with_user: true
         write_research_brief: true
         compress_research: true
-        generate_report_outline: true
       tool_call:
         clarify_with_user: true
         write_research_brief: true
         compress_research: true
-        generate_report_outline: true
