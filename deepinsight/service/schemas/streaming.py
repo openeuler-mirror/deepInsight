@@ -34,6 +34,9 @@ class EventType(str, Enum):
     thinking_step_topic = "thinking_step_topic"
     thinking_step_report_generating = "thinking_step_report_generating"
 
+    # progress
+    progress = "progress"
+
 
 class MessageToolCallContent(BaseModel):
     index: Optional[int] = Field(None, description="Tool call index")

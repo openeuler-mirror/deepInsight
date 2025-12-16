@@ -11,6 +11,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, ToolMessage, ToolMessageChunk
 from langgraph.types import StateSnapshot, Interrupt, Command
 from langgraph.graph.state import CompiledStateGraph
+from deepinsight.core.utils.progress_utils import ProgressEvent
 
 from deepinsight.service.schemas.streaming import (
     EventType,
@@ -259,6 +260,18 @@ class StreamEventAdapter:
                             content_type=ResponseMessageContentType.tool_call,
                         )
                     ],
+                )
+            elif isinstance(message_chunk, ProgressEvent):
+                yield StreamEvent(
+                    event=EventType.progress,
+                    run_id=run_id,
+                    conversation_id=conversation_id,
+                    messages=[
+                        ResponseMessage(
+                            content=ResponseMessageContent(text=message_chunk.description),
+                            content_type=ResponseMessageContentType.plain_text,
+                        )
+                    ]
                 )
 
         elif mode == "updates":

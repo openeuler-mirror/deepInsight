@@ -20,7 +20,6 @@ from deepinsight.core.tools.wordcloud_tool import generate_wordcloud
 from deepinsight.core.utils.progress_utils import progress_stage
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.core.tools.tavily_search import tavily_search
-from deepinsight.core.utils.context_utils import DefaultSummarizationMiddleware
 from deepinsight.utils.db_schema_utils import get_db_models_source_markdown
 
 from integrations.mcps.generate_chart import generate_column_chart, generate_bar_chart, generate_pie_chart
@@ -61,7 +60,7 @@ async def get_deep_agents(config: RunnableConfig, prompt_template_name, extent_t
         tools=tools,
         system_prompt=system_prompt,
         backend=mem_file_system_instance,
-        middleware=[ModelFallbackMiddleware(llm_model, llm_model), DefaultSummarizationMiddleware(model=llm_model)]
+        middleware=[ModelFallbackMiddleware(llm_model, llm_model)]
     )
     return agent
 

@@ -11,11 +11,9 @@ from langchain_tavily import TavilySearch
 
 from deepinsight.core.tools.file_system import register_fs_tools, MemoryMCPFilesystem
 from deepinsight.core.utils.tool_utils import create_retrieval_tool, CoerceToolOutput
-from deepinsight.core.utils.context_utils import SummarizationMiddleware
 from deepinsight.core.types.graph_config import RetrievalType
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.utils.db_schema_utils import get_db_models_source_markdown
-from deepinsight.core.utils.context_utils import DefaultSummarizationMiddleware
 
 # ----------------- 单篇论文解析函数 -----------------
 
@@ -83,7 +81,6 @@ async def analyze_single_paper(paper_info: str, output_dir: str, config: Runnabl
         }
         middleware = [
             CoerceToolOutput(),
-            SummarizationMiddleware(model=rc.default_model),
             ModelFallbackMiddleware(
                 rc.default_model,  # Try first on error
                 rc.default_model,  # Then this

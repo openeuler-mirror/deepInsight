@@ -372,7 +372,9 @@ async def deep_research_team_node(state: SupervisorState, config: RunnableConfig
             for key, usage in all_keys_usage.items():
                 logging.error(f"API Key: {key} - Plan Limit: {usage['plan_limit']}, Plan Usage: {usage['plan_usage']}")
             writer = get_stream_writer()
-            writer({"result": "no tavily key can be used, please set first."})
+            writer(FinalResult(
+                final_report="no tavily key can be used, please set first."
+            ))
             return Command(goto=END)
 
     parent_configurable = config.get("configurable", {})
