@@ -6,18 +6,27 @@ import logging
 import re
 import os
 import urllib.parse
+from typing import Type, TYPE_CHECKING
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.documents import Document as LCDocument
 
 from deepinsight.config.rag_config import MineruParserConfig
-from deepinsight.service.rag.loaders.base import ParseResult
+from deepinsight.service.rag.loaders.base import BaseLoader, ParseResult
 from deepinsight.service.rag.parsers.base import BaseDocumentParser
 from deepinsight.service.rag.types import LoaderOutput
 from deepinsight.service.schemas.rag import DocumentPayload
 from deepinsight.utils.file_storage import get_storage_impl
 from deepinsight.utils.file_storage.identify import KbDocImage
+
+
+if TYPE_CHECKING:
+    from deepinsight.service.rag.loaders.mineru_offline import MinerUOfflineClient
+    from deepinsight.service.rag.loaders.mineru_online import MinerUOnlineClient
+else:
+    from deepinsight.service.rag.loaders.base import BaseLoader as MinerUOfflineClient
+    from deepinsight.service.rag.loaders.base import BaseLoader as MinerUOnlineClient
 
 
 class MineruVLParser(BaseDocumentParser):
@@ -54,8 +63,7 @@ async def _parse_file_content(filename: str, binary: bytes) -> ParseResult:
     ext = filename.lower().rsplit(".")[-1]
     if ext in {"pdf", "docx", "doc", "pptx", "ppt"}:
         try:
-            from deepinsight.service.rag.loaders.mineru_online import MinerUOnlineClient
-            return await MinerUOnlineClient().process(filename, binary)
+            return await _auto_get_mineru_client().process(filename, binary)
         except Exception as e:
             logging.error("Failed to parse %r using MinerU: %s", filename, e)
             raise
@@ -205,3 +213,27 @@ def _create_image_desc_default_model() -> BaseChatModel:
     from langchain_openai import ChatOpenAI
 
     return ChatOpenAI(openai_api_base=url, openai_api_key=key, model=model)  # type: ignore
+
+
+_mineru_client_type: "Type[MinerUOnlineClient] | Type[MinerUOfflineClient]" = None  # type: ignore
+
+
+def _auto_get_mineru_client() -> BaseLoader:
+    global _mineru_client_type
+
+    if _mineru_client_type:
+        return _mineru_client_type()  # type: ignore
+    from deepinsight.service.rag.loaders.mineru_offline import MinerUOfflineClient
+    if MinerUOfflineClient.is_environ_ready():
+        _mineru_client_type = MinerUOfflineClient
+        logging.info("MinerU offline service is ready. Use offline MinerU parser.")
+        return MinerUOfflineClient()
+
+    from deepinsight.service.rag.loaders.mineru_online import MinerUOnlineClient
+    if MinerUOnlineClient.is_environ_ready():
+        _mineru_client_type = MinerUOnlineClient
+        logging.info("MinerU online service is ready. Use online MinerU parser.")
+        return MinerUOnlineClient()
+
+    raise RuntimeError("Neither 'MINERU_ONLINE_API_KEY' nor 'MINERU_OFFLINE_BASE_URL' is set. "
+                       "DeepInsight needs one of them to parse document by MinerU.")
