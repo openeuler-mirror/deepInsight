@@ -27,6 +27,14 @@ class MinerUOnlineClient(BaseLoader):
     state_query_timeout: float = 60 * 60
     image_regex: re.Pattern[str] = re.compile(r"""!\[()\]\((images/[a-f0-9]{64}\.(jpg|png))\)""")
 
+    @staticmethod
+    def is_environ_ready() -> bool:
+        try:
+            _api_key_from_env()
+            return True
+        except ValueError:
+            return False
+
     async def process(self, name: str, content: bytes) -> ParseResult:
         returns = await self.batch_process({name: content})
         result = list(returns.values())[0]
