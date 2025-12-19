@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import List, Optional, Annotated
 
 from pydantic import BaseModel, Field, ConfigDict, AnyHttpUrl
+from sqlalchemy import select, and_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from langchain_core.messages import HumanMessage
@@ -366,16 +367,17 @@ explores the interaction of computer systems with related areas such as computer
 
     async def get_or_create_conference(self, conf_name: str, year: int) -> tuple[int, str]:
         with self._db.get_session() as db:  # type: Session
-            conf: Conference = db.query(Conference).filter(
-                Conference.short_name == conf_name, Conference.year == year  # type: ignore
-            ).first()
-            if conf:
-                return conf.conference_id, conf.full_name or conf_name
+            existing = db.execute(
+                select(Conference.conference_id, Conference.full_name)
+                .where(and_(Conference.short_name == conf_name, Conference.year == year))
+            ).one_or_none()
+            if existing:
+                return existing[0], existing[1] or conf_name  # id, full_name
         new_conf_meta = await self._query_conference_meta(conf_name, year)
         max_retry = 3
         for retry in range(max_retry):
-            try:
-                with self._db.get_session() as db:  # type: Session
+            with self._db.get_session() as db:  # type: Session
+                try:
                     conf = Conference(
                         full_name=new_conf_meta.full_name,
                         short_name=conf_name,
@@ -386,9 +388,18 @@ explores the interaction of computer systems with related areas such as computer
                     db.add(conf)
                     db.commit()
                     return conf.conference_id, conf.full_name or conf_name
-            except IntegrityError:
-                await asyncio.sleep(random.random() * 2 + 0.5)  # retry with a random interval
-                continue
+                except IntegrityError:
+                    db.rollback()  # add roll back to prevent from unnecessary ERROR log
+            # try get directly from db
+            with self._db.get_session() as db:  # type: Session
+                existing = db.execute(
+                    select(Conference.conference_id, Conference.full_name)
+                    .where(and_(Conference.short_name == conf_name, Conference.year==year))
+                ).one_or_none()
+                if existing is None:
+                    await asyncio.sleep(random.random() * 2 + 0.5)  # retry with a random interval: deleted yet
+                    continue
+                return existing[0], existing[1] or conf_name  # id, full_name
         raise self.ConferenceQueryException("Try creating new conference with too many conflicts.")
 
     async def ingest_single_paper(self, conference_id: int, kb_id_external: str,
