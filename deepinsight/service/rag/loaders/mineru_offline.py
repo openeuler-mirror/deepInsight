@@ -11,6 +11,7 @@ from typing import Annotated, Any
 
 from aiohttp import ClientSession, ClientTimeout, ClientResponse, FormData
 from langchain_core.documents import Document
+from langchain_text_splitters import MarkdownHeaderTextSplitter
 from pydantic import AfterValidator, AnyHttpUrl, Field, ValidationError
 
 from deepinsight.service.rag.loaders.base import BaseLoader, ParseResult
@@ -116,6 +117,14 @@ class MinerUOfflineClient(BaseLoader):
             if isinstance(error, str):
                 return error
         return "an unknown error"
+
+    @staticmethod
+    def _split(raw: str) -> list[Document]:
+        return (
+            MarkdownHeaderTextSplitter(headers_to_split_on=[("#" * i, f"H{i}") for i in range(1, 4)],
+                                       strip_headers=False)
+            .split_text(raw)
+        )
 
     @classmethod
     async def _api_load_response_json_validator(cls, map_to_real_name: dict[str, str],
@@ -256,7 +265,7 @@ class MinerUOfflineClient(BaseLoader):
                     logging.error(f"MinerU client decode image {img_path!r} of file {real_name!r} failed with "
                                   f"{type(e).__name__}: {e}", exc_info=True)
                     broken_images[img_path] = raw_content
-            output_dict[real_name] = ParseResult(text=[Document(markdown)], images=decoded_images,
+            output_dict[real_name] = ParseResult(text=self._split(markdown), images=decoded_images,
                                                  image_regex=self.image_regex)
         return output_dict
 
@@ -293,5 +302,6 @@ class MinerUOfflineClient(BaseLoader):
                                 f"{real_name!r} (which expected to be dict[str, bytes]), got: {images}")
                 output_dict[real_name] = MineruUnexpectedReturn()
                 continue
-            output_dict[real_name] = ParseResult(text=[Document(markdown)], images=images, image_regex=self.image_regex)
+            output_dict[real_name] = ParseResult(text=self._split(markdown), images=images,
+                                                 image_regex=self.image_regex)
         return output_dict
