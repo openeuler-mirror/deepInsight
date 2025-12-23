@@ -77,3 +77,4 @@ packages = [
 
 [tool.poetry.scripts]
 deepinsight = "deepinsight.cli.main:main"
+di = "deepinsight.cli.main:main"

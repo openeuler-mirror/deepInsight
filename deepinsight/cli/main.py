@@ -16,9 +16,6 @@ import logging
 from rich.logging import RichHandler
 from rich import get_console
 
-from deepinsight.cli.commands.research import ResearchCommand
-from deepinsight.cli.commands.conference import ConferenceCommand
-from deepinsight.cli.commands.api import ApiCommand
 
 dotenv.load_dotenv(override=True)
 
@@ -49,29 +46,38 @@ class DeepInsightCLI:
     
     def __init__(self):
         self.parser = self._create_parser()
-        self.commands = {
-            
-            'research': ResearchCommand(),
-            'conference': ConferenceCommand(),
-            'api': ApiCommand(),
-        }
+        self._command_instances = {}
+    
+    def _get_command(self, command_name: str):
+        if command_name not in self._command_instances:
+            if command_name == 'resch':
+                from deepinsight.cli.commands.research import ResearchCommand
+                self._command_instances[command_name] = ResearchCommand()
+            elif command_name == 'conf':
+                from deepinsight.cli.commands.conference import ConferenceCommand
+                self._command_instances[command_name] = ConferenceCommand()
+            elif command_name == 'api':
+                from deepinsight.cli.commands.api import ApiCommand
+                self._command_instances[command_name] = ApiCommand()
+            else:
+                return None
+        return self._command_instances[command_name]
     
     def _create_parser(self) -> argparse.ArgumentParser:
         """Create the main argument parser."""
         parser = argparse.ArgumentParser(
-            prog='deepinsight',
+            prog='di',
             description='DeepInsight CLI - AI-powered research and knowledge management tool',
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""
 Examples:
-  deepinsight conference list
-  deepinsight conference generate --name "ICLR 2025" --files-src ./docs
-  deepinsight conference qa --name "ICLR 2025" --files-src ./docs --question "今年最佳论文有哪些创新点？"
-  deepinsight research start
-  deepinsight --version
+  di conf gen --name "ICLR 2025" --files-src ./docs
+  di conf chat --name "ICLR 2025" --files-src ./docs --question "今年最佳论文有哪些创新点？"
+  di resch gen --topic "ICLR 2025"
+  di --version
 
 For more information on a specific command, run:
-  deepinsight <command> --help
+  di <command> --help
             """
         )
         
@@ -96,27 +102,27 @@ For more information on a specific command, run:
         
 
         
-        # Research assistant command
-        research_parser = subparsers.add_parser(
-            'research',
+        # Research command
+        resch_parser = subparsers.add_parser(
+            'resch',
             help='Deep research',
-            description='Usage: deepinsight research start --topic "<research topic>"',
+            description='Usage: di resch gen --topic "<research topic>"',
             formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog='Examples:\n  deepinsight research start --topic "ICLR 2025"\n  deepinsight research start --topic "AI trends"'
+            epilog='Examples:\n  di resch gen --topic "ICLR 2025"\n  di resch gen --topic "AI trends"'
         )
-        research_parser.add_argument(
+        resch_parser.add_argument(
             'args',
             nargs=argparse.REMAINDER,
-            help='Use "deepinsight research start --topic \"...\""'
+            help='Use "di resch gen --topic \"...\""'
         )
         
         # Conference management command
-        conference_parser = subparsers.add_parser(
-            'conference',
+        conf_parser = subparsers.add_parser(
+            'conf',
             help='Top conference management',
             description='Manage top conference information via CLI'
         )
-        conference_parser.add_argument(
+        conf_parser.add_argument(
             'args',
             nargs=argparse.REMAINDER,
             help='Arguments for conference subcommands (parsed by ConferenceCommand)'
@@ -148,19 +154,21 @@ For more information on a specific command, run:
                 return 1
             
             # Forward research help to subcommand parser for better UX
-            if parsed_args.command == 'research':
+            if parsed_args.command == 'resch':
                 rest = getattr(parsed_args, 'args', [])
                 if not rest or '--help' in rest or '-h' in rest:
+                    from deepinsight.cli.commands.research import ResearchCommand
                     ResearchCommand()._create_parser().print_help()
                     return 0
             if parsed_args.command == 'api':
                 rest = getattr(parsed_args, 'args', [])
                 if not rest or '--help' in rest or '-h' in rest:
+                    from deepinsight.cli.commands.api import ApiCommand
                     ApiCommand()._create_parser().print_help()
                     return 0
 
             # Get the appropriate command handler
-            command = self.commands.get(parsed_args.command)
+            command = self._get_command(parsed_args.command)
             if not command:
                 print(f"Error: Unknown command '{parsed_args.command}'")
                 return 1

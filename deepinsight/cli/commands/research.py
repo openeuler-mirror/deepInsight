@@ -43,20 +43,22 @@ class ResearchCommand:
     def execute(self, args: argparse.Namespace) -> int:
         parser = self._create_parser()
         research_args = parser.parse_args(sys.argv[2:])
-        if research_args.subcommand == 'start':
+        
+        if research_args.subcommand == 'gen':
             return self._handle_start_command(research_args)
         parser.print_help()
         return 1
 
     def _create_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
-            prog='deepinsight research',
+            prog='di resch',
             description='Deep Research Assistant - AI-powered research tool'
         )
         subparsers = parser.add_subparsers(dest='subcommand', help='Operations')
 
-        start_parser = subparsers.add_parser('start', help='Run research')
-        start_parser.add_argument('--topic', '-t', type=str, required=False, help='Research topic or URL')
+        gen_parser = subparsers.add_parser('gen', help='Run research')
+        gen_parser.add_argument('--topic', '-t', type=str, required=False, help='Research topic or URL')
+        
         return parser
 
     def _handle_start_command(self, args: argparse.Namespace) -> int:

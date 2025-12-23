@@ -44,4 +44,4 @@ ENV PYTHONPATH="/deepinsight:${PYTHONPATH}"
 RUN chmod +x /deepinsight/entrypoint.sh
 ENTRYPOINT ["/deepinsight/entrypoint.sh"]
 
-CMD ["deepinsight", "api", "start"]
+CMD ["di", "api", "start"]

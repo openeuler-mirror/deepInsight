@@ -19,7 +19,7 @@ from langgraph.types import Command, interrupt
 from pydantic import BaseModel, Field
 
 from deepinsight.core.types.graph_nodes import DeepResearchNodeName
-from deepinsight.core.agent.deep_research.researcher import graph as topic_research_subgraph
+from deepinsight.core.agent.resch_gen.researcher import graph as topic_research_subgraph
 from deepinsight.core.agent.expert_review.expert_review import build_expert_review_graph
 from deepinsight.core.types.research import (
     ResearchComplete, 

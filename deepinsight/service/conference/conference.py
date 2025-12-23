@@ -15,7 +15,7 @@ import random
 import shutil
 import logging
 from datetime import datetime
-from typing import List, Optional, Annotated
+from typing import List, Optional, Annotated, Tuple
 
 from pydantic import BaseModel, Field, ConfigDict, AnyHttpUrl
 from sqlalchemy import select, and_
@@ -59,7 +59,7 @@ from deepinsight.utils.llm_utils import init_langchain_models_from_llm_config
 from deepinsight.service.conference.paper_extractor import PaperExtractionService, PaperParseException
 from deepinsight.service.schemas.paper_extract import ExtractPaperMetaRequest, ExtractPaperMetaFromDocsRequest, \
     DocSegment, PaperMeta
-from deepinsight.core.agent.conference_research.conf_topic import get_conference_topics
+from deepinsight.core.agent.conf_gen.conf_topic import get_conference_topics
 from deepinsight.utils.file_storage.factory import get_storage_impl
 
 class ConferenceService:
@@ -74,9 +74,18 @@ class ConferenceService:
         # 使用 Config.database 直接初始化 Database（DatabaseConfig）
         self._db = Database(config.database)
         self._config = config
-        self._knowledge = KnowledgeService(config)
-        # 初始化论文提取服务
-        self._paper_extractor = PaperExtractionService(config)
+        self._knowledge: Optional[KnowledgeService] = None
+        self._paper_extractor: Optional[PaperExtractionService] = None
+    
+    def _get_knowledge_service(self) -> KnowledgeService:
+        if self._knowledge is None:
+            self._knowledge = KnowledgeService(self._config)
+        return self._knowledge
+    
+    def _get_paper_extractor(self) -> PaperExtractionService:
+        if self._paper_extractor is None:
+            self._paper_extractor = PaperExtractionService(self._config)
+        return self._paper_extractor
 
     async def create_conference(self, data: ConferenceCreateRequest) -> ConferenceResponse:
         # Optionally enrich metadata via web search when short_name+year provided
@@ -278,12 +287,12 @@ explores the interaction of computer systems with related areas such as computer
             if not conf:
                 return DeleteConferenceResponse(ok=False)
             # 先清理关联的知识库，包括删除 LightRAG 目录
-            kbs = await self._knowledge.list_kbs(
+            kbs = await self._get_knowledge_service().list_kbs(
                 KnowledgeListRequest(owner_type=OwnerType.CONFERENCE, owner_id=conf.conference_id)
             )
             for kb in kbs:
                 try:
-                    await self._knowledge.cleanup_kb(kb.kb_id)
+                    await self._get_knowledge_service().cleanup_kb(kb.kb_id)
                 except Exception:
                     # 忽略单个知识库清理失败，继续删除会议记录
                     pass
@@ -303,7 +312,7 @@ explores the interaction of computer systems with related areas such as computer
             if not conf:
                 raise ValueError(f"Conference {req.conference_id} not found")
         # 2) 创建知识库占位
-        kb = await self._knowledge.create_kb(
+        kb = await self._get_knowledge_service().create_kb(
             KnowledgeBaseCreateRequest(
                 owner_type=OwnerType.CONFERENCE,
                 owner_id=None,
@@ -316,7 +325,7 @@ explores the interaction of computer systems with related areas such as computer
         )
         try:
             # 3) 置为 processing
-            await self._knowledge.begin_processing(BeginProcessingRequest(kb_id=kb.kb_id))
+            await self._get_knowledge_service().begin_processing(BeginProcessingRequest(kb_id=kb.kb_id))
             # 4) 扫描目录并注册文档（覆盖常见格式）
             await self.scan_dir_and_register_docs(
                 ScanAndRegisterRequest(
@@ -327,12 +336,12 @@ explores the interaction of computer systems with related areas such as computer
                 )
             )
             # 5) 完成并绑定会议ID
-            final = await self._knowledge.finalize_success(
+            final = await self._get_knowledge_service().finalize_success(
                 FinalizeRequest(kb_id=kb.kb_id, owner_id=req.conference_id)
             )
             return final
         except Exception:
-            await self._knowledge.mark_failed(kb.kb_id)
+            await self._get_knowledge_service().mark_failed(kb.kb_id)
             raise
         
     async def ensure_conference_and_ingest_docs(self, req: ConferenceParseDocsRequest, reporter: Optional[ProgressReporter] = None) -> Tuple[int, int]:
@@ -349,7 +358,7 @@ explores the interaction of computer systems with related areas such as computer
         conf_id = await self._resolve_conference_id(req)
 
         # Locate existing KB for the conference
-        existing_kbs = await self._knowledge.list_kbs(KnowledgeListRequest(owner_type=OwnerType.CONFERENCE, owner_id=conf_id))
+        existing_kbs = await self._get_knowledge_service().list_kbs(KnowledgeListRequest(owner_type=OwnerType.CONFERENCE, owner_id=conf_id))
         kb = existing_kbs[0] if existing_kbs else None
 
         if kb is None:
@@ -424,20 +433,20 @@ explores the interaction of computer systems with related areas such as computer
             kb_id=kb_id_external, resource_prefix=resource_prefix)
         text = "\n\n".join(chunk.page_content for chunk in parsed.result.text)
         extract_request = ExtractPaperMetaRequest(conference_id=conference_id, filename=filename, paper=text)
-        response = await self._paper_extractor.extract_and_store(extract_request)
+        response = await self._get_paper_extractor().extract_and_store(extract_request)
         return parsed.result, response.full_meta
 
     async def _reparse_unfinished_docs_for_conference(self, kb_id: int, conference_id: int, reporter: Optional[ProgressReporter]) -> None:
         try:
-            docs = await self._knowledge.retry_unfinished_docs(kb_id, reporter=reporter)
+            docs = await self._get_knowledge_service().retry_unfinished_docs(kb_id, reporter=reporter)
             if docs:
                 if reporter is not None:
                     reporter.begin(total=len(docs), description="Reparsing unfinished documents")
                 for d in docs:
-                    doc_resp = await self._knowledge.reparse_document(kb_id, d.doc_id)
+                    doc_resp = await self._get_knowledge_service().reparse_document(kb_id, d.doc_id)
                     try:
                         if getattr(doc_resp, "documents", None):
-                            await self._paper_extractor.extract_and_store_from_documents(
+                            await self._get_paper_extractor().extract_and_store_from_documents(
                                 ExtractPaperMetaFromDocsRequest(
                                     conference_id=conference_id,
                                     filename=doc_resp.file_name,
@@ -445,7 +454,7 @@ explores the interaction of computer systems with related areas such as computer
                                 )
                             )
                         elif doc_resp.extracted_text:
-                            await self._paper_extractor.extract_and_store(
+                            await self._get_paper_extractor().extract_and_store(
                                 ExtractPaperMetaRequest(
                                     conference_id=conference_id,
                                     filename=doc_resp.file_name,
@@ -501,7 +510,7 @@ explores the interaction of computer systems with related areas such as computer
         os.makedirs(target_root, exist_ok=True)
         dest_dir = target_root
         shutil.copytree(req.docs_src_dir, dest_dir, dirs_exist_ok=True)
-        kb = await self._knowledge.create_kb(
+        kb = await self._get_knowledge_service().create_kb(
             KnowledgeBaseCreateRequest(
                 owner_type=OwnerType.CONFERENCE,
                 owner_id=conf_id,
@@ -513,24 +522,24 @@ explores the interaction of computer systems with related areas such as computer
             )
         )
         try:
-            await self._knowledge.begin_processing(BeginProcessingRequest(kb_id=kb.kb_id))
+            await self._get_knowledge_service().begin_processing(BeginProcessingRequest(kb_id=kb.kb_id))
             count = await self.scan_dir_and_register_docs(
                 ScanAndRegisterRequest(kb_id=kb.kb_id, root_dir=dest_dir, exts=tuple(req.exts), conference_id=conf_id),
                 reporter=reporter,
             )
             if count == 0:
-                await self._knowledge.cleanup_kb(kb.kb_id)
+                await self._get_knowledge_service().cleanup_kb(kb.kb_id)
                 with self._db.get_session() as db:
                     c = db.query(Conference).filter(Conference.conference_id == conf_id).first()
                     if c:
                         db.delete(c)
                         db.commit()
                 raise ValueError("No documents ingested")
-            await self._knowledge.finalize_success(FinalizeRequest(kb_id=kb.kb_id, owner_id=conf_id))
+            await self._get_knowledge_service().finalize_success(FinalizeRequest(kb_id=kb.kb_id, owner_id=conf_id))
             return kb.kb_id
         except Exception:
-            await self._knowledge.mark_failed(kb.kb_id)
-            await self._knowledge.cleanup_kb(kb.kb_id)
+            await self._get_knowledge_service().mark_failed(kb.kb_id)
+            await self._get_knowledge_service().cleanup_kb(kb.kb_id)
             with self._db.get_session() as db:
                 c = db.query(Conference).filter(Conference.conference_id == conf_id).first()
                 if c:
@@ -571,13 +580,13 @@ explores the interaction of computer systems with related areas such as computer
         original_doc_count = kb.doc_count
         original_last_built_at = kb.last_built_at
         try:
-            await self._knowledge.begin_processing(BeginProcessingRequest(kb_id=kb.kb_id))
+            await self._get_knowledge_service().begin_processing(BeginProcessingRequest(kb_id=kb.kb_id))
             if reporter is not None:
                 reporter.begin(total=len(add_paths), description="Registering new documents")
             for src in add_paths:
                 name = os.path.basename(src)
                 dst = os.path.join(existing_root, name)
-                doc_resp = await self._knowledge.add_document(
+                doc_resp = await self._get_knowledge_service().add_document(
                     KnowledgeDocumentCreateRequest(
                         kb_id=kb.kb_id,
                         file_path=dst,
@@ -588,7 +597,7 @@ explores the interaction of computer systems with related areas such as computer
                 if conf_id is not None:
                     try:
                         if getattr(doc_resp, "documents", None):
-                            await self._paper_extractor.extract_and_store_from_documents(
+                            await self._get_paper_extractor().extract_and_store_from_documents(
                                 ExtractPaperMetaFromDocsRequest(
                                     conference_id=conf_id,
                                     filename=name,
@@ -596,7 +605,7 @@ explores the interaction of computer systems with related areas such as computer
                                 )
                             )
                         elif doc_resp.extracted_text:
-                            await self._paper_extractor.extract_and_store(
+                            await self._get_paper_extractor().extract_and_store(
                                 ExtractPaperMetaRequest(
                                     conference_id=conf_id,
                                     filename=name,
@@ -607,7 +616,7 @@ explores the interaction of computer systems with related areas such as computer
                         logging.warning(f"Paper extraction failed for {dst}: {e}")
                 if reporter is not None:
                     reporter.advance(step=1)
-            await self._knowledge.finalize_success(FinalizeRequest(kb_id=kb.kb_id, owner_id=conf_id))
+            await self._get_knowledge_service().finalize_success(FinalizeRequest(kb_id=kb.kb_id, owner_id=conf_id))
             if reporter is not None:
                 reporter.complete()
         except Exception:
@@ -619,7 +628,7 @@ explores the interaction of computer systems with related areas such as computer
                         os.remove(dst)
                     except Exception:
                         pass
-            await self._knowledge.restore_state(
+            await self._get_knowledge_service().restore_state(
                 kb_id=kb.kb_id,
                 status=original_status,
                 doc_count=original_doc_count,
@@ -655,7 +664,7 @@ explores the interaction of computer systems with related areas such as computer
             reporter.begin(total=len(files_to_process), description="Registering documents")
         for fpath, fname in files_to_process:
             try:
-                doc_resp = await self._knowledge.add_document(
+                doc_resp = await self._get_knowledge_service().add_document(
                     KnowledgeDocumentCreateRequest(
                         kb_id=req.kb_id,
                         file_path=fpath,
@@ -667,7 +676,7 @@ explores the interaction of computer systems with related areas such as computer
                 if conference_id is not None:
                     try:
                         if getattr(doc_resp, "documents", None):
-                            await self._paper_extractor.extract_and_store_from_documents(
+                            await self._get_paper_extractor().extract_and_store_from_documents(
                                 ExtractPaperMetaFromDocsRequest(
                                     conference_id=conference_id,
                                     filename=fname,
@@ -675,7 +684,7 @@ explores the interaction of computer systems with related areas such as computer
                                 )
                             )
                         elif doc_resp.extracted_text:
-                            await self._paper_extractor.extract_and_store(
+                            await self._get_paper_extractor().extract_and_store(
                                 ExtractPaperMetaRequest(
                                     conference_id=conference_id,
                                     filename=fname,

@@ -31,8 +31,8 @@ from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.core.types.graph_config import ResearchConfig, SearchAPI
 from deepinsight.core.types.research import FinalResult
 
-from deepinsight.core.agent.deep_research.supervisor import graph as deep_research_graph
-from deepinsight.core.agent.conference_research.conf_stat_value_mining import conf_stat_graph
+from deepinsight.core.agent.resch_gen.supervisor import graph as deep_research_graph
+from deepinsight.core.agent.conf_gen.conf_stat_value_mining import conf_stat_graph
 from deepinsight.core.tools.file_system import register_fs_tools, fs_instance
 
 
@@ -41,11 +41,11 @@ class ConferenceGraphNodeType(str, Enum):
     WAIT_QUESTION_CLARIFY = "wait_question_clarify"
     INSIGHT_SUMMARY = "summary"
 
-    CONFERENCE_OVERVIEW = "conference_overview"
-    CONFERENCE_SUBMISSION = "conference_submission"
-    CONFERENCE_KEYNOTE = "conference_keynotes"
-    CONFERENCE_TOPIC = "conference_topic"
-    CONFERENCE_BEST_PAPER = "conference_best_papers"
+    CONFERENCE_OVERVIEW = "conf_gen_overview"
+    CONFERENCE_SUBMISSION = "conf_gen_submission"
+    CONFERENCE_KEYNOTE = "conf_gen_keynotes"
+    CONFERENCE_TOPIC = "conf_gen_topic"
+    CONFERENCE_BEST_PAPER = "conf_gen_best_papers"
 
     def __str__(self):
         return self.value
