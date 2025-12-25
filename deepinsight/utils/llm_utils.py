@@ -1,5 +1,6 @@
+import json
 import logging
-from typing import Dict, List, Tuple, Callable, Any, Optional
+from typing import Dict, List, Tuple, Callable, Any, Optional, Type, TypeVar
 
 from pydantic import BaseModel, ValidationError, SecretStr
 
@@ -12,6 +13,8 @@ from deepinsight.config.config import Config
 from deepinsight.config.llm_config import LLMConfig
 from deepinsight.service.schemas.research import ArgOptionsGeneric
 from lightrag.llm.openai import openai_complete_if_cache
+
+TModel = TypeVar("TModel", bound=BaseModel)
 
 
 def _normalize_settings_kwargs(setting: Any) -> Dict[str, Any]:
@@ -40,6 +43,74 @@ def _normalize_settings_kwargs(setting: Any) -> Dict[str, Any]:
 
     # Unknown type, ignore
     return {}
+
+
+def extract_json_from_text(text: str) -> str:
+    """
+    从 LLM 的自然语言回复中提取 JSON 字符串（通用工具）。
+
+    优先策略：
+    - 优先从最后一个 ```json ... ``` 代码块中提取
+    - 若没有代码块，则从整段文本中搜索最后一对花括号 { ... }
+    """
+    if not text:
+        raise ValueError("Empty text, cannot extract JSON.")
+
+    # 1. 优先找 ```json 代码块（从后往前找，取最后一个）
+    fence = "```"
+    json_fence = "```json"
+    last_json_fence = text.rfind(json_fence)
+    if last_json_fence != -1:
+        # 从 ```json 开始，往后找下一个 ```
+        start = last_json_fence + len(json_fence)
+        end = text.find(fence, start)
+        if end != -1:
+            json_block = text[start:end].strip()
+            if json_block:
+                return json_block
+
+    # 2. 退化策略：直接在全文里找最后一对花括号
+    left = text.rfind("{")
+    right = text.rfind("}")
+    if left == -1 or right == -1 or right <= left:
+        raise ValueError("No JSON object found in text.")
+    return text[left : right + 1]
+
+
+def parse_json_text_to_model(text: str, model_cls: Type[TModel]) -> TModel:
+    """
+    通用工具：从 LLM 文本回复中提取 JSON，并解析为指定的 Pydantic BaseModel（含 RootModel）。
+
+    - `text`: LLM 返回的整段文本（通常来自 message.content）
+    - `model_cls`: 目标 Pydantic 模型类（包括 RootModel 子类）
+
+    用法示例：
+
+        mapping = parse_json_text_to_model(llm_text, AffiliationMap)
+    """
+    try:
+        json_str = extract_json_from_text(text)
+    except Exception as e:
+        logging.error(f"Failed to extract JSON from LLM text: {type(e).__name__}: {e}")
+        raise
+
+    try:
+        data = json.loads(json_str)
+    except Exception as e:
+        logging.error(f"Failed to parse JSON from LLM text: {type(e).__name__}: {e}")
+        raise
+
+    try:
+        # 兼容 Pydantic v2 的 model_validate / v1 的 parse_obj
+        if hasattr(model_cls, "model_validate"):
+            return model_cls.model_validate(data)  # type: ignore[return-value]
+        return model_cls.parse_obj(data)  # type: ignore[return-value,attr-defined]
+    except Exception as e:
+        logging.error(
+            f"Failed to convert JSON to model {getattr(model_cls, '__name__', str(model_cls))}: "
+            f"{type(e).__name__}: {e}"
+        )
+        raise
 
 
 def init_langchain_models_from_llm_config(

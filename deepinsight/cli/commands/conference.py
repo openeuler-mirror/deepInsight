@@ -26,13 +26,6 @@ from deepinsight.service.schemas.conference import (
     ConferenceParseDocsRequest,
 )
 
-from deepinsight.service.research.research import ResearchService
-from deepinsight.service.schemas.research import ResearchRequest, SceneType, PPTGenerateRequest, ResearchArgs, RetrievalArgs, ArgOptionsGeneric
-from deepinsight.service.schemas.streaming import Message, MessageContent, MessageContentType
-from deepinsight.cli.commands.stream import run_research_and_save_report_sync, make_report_filename
-from deepinsight.core.types.graph_config import SearchAPI
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -54,9 +47,9 @@ class ConferenceCommand:
             return self._handle_list(conf_args)
         elif conf_args.subcommand == 'remove':
             return self._handle_remove(conf_args)
-        elif conf_args.subcommand == 'generate':
+        elif conf_args.subcommand == 'gen':
             return self._handle_generate(conf_args)
-        elif conf_args.subcommand == 'qa':
+        elif conf_args.subcommand == 'chat':
             return self._handle_qa(conf_args)
         else:
             parser.print_help()
@@ -64,15 +57,15 @@ class ConferenceCommand:
 
     def _create_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
-            prog='deepinsight conference',
-            description='Conference information management (list/remove/generate/qa)',
+            prog='di conf',
+            description='Conference information management (list/remove/gen/chat)',
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog='''\
 Examples:
-  deepinsight conference list
-  deepinsight conference generate --name "ICLR 2025" --files-src ./docs
-  deepinsight conference qa --name "ICLR 2025" --files-src ./docs --question "今年最佳论文有哪些创新点？"
-  deepinsight conference remove --id 12
+  di conf list
+  di conf gen --name "ICLR 2025" --files-src ./docs
+  di conf chat --name "ICLR 2025" --files-src ./docs --question "今年最佳论文有哪些创新点？"
+  di conf remove --id 12
             '''
         )
         subparsers = parser.add_subparsers(dest='subcommand', help='Operations')
@@ -92,16 +85,17 @@ Examples:
         remove_parser.add_argument('conference_id', nargs='?', type=int, help='Conference ID')
         remove_parser.add_argument('--id', '-i', type=int, help='Conference ID (optional flag)')
 
-        # generate
-        generate_parser = subparsers.add_parser('generate', help='Generate conference knowledge base (auto rollback on failure)')
-        # Short aliases and renamed source flag: -n for --name, -f for --files-src
-        # Note: --files-src replaces the previous --docs-src for clarity.
-        generate_parser.add_argument('--name', '-n', required=True, help='Conference name including year, e.g., "ICLR 2025"')
-        generate_parser.add_argument('--files-src', '-f', required=True, help='User-provided source directory of files to ingest')
-        qa_parser = subparsers.add_parser('qa', help='Conference QA based on ingested documents')
-        qa_parser.add_argument('--name', '-n', required=True, help='Conference name including year, e.g., "ICLR 2025"')
-        qa_parser.add_argument('--files-src', '-f', required=True, help='User-provided source directory of files to ingest')
-        qa_parser.add_argument('--question', '-q', required=True, help='User question to answer against the conference knowledge base')
+        # gen (generate)
+        gen_parser = subparsers.add_parser('gen', help='Generate conference knowledge base (auto rollback on failure)')
+        gen_parser.add_argument('--name', '-n', required=True, help='Conference name including year, e.g., "ICLR 2025"')
+        gen_parser.add_argument('--files-src', '-f', required=True, help='User-provided source directory of files to ingest')
+        
+        # chat (qa)
+        chat_parser = subparsers.add_parser('chat', help='Conference QA based on ingested documents')
+        chat_parser.add_argument('--name', '-n', required=True, help='Conference name including year, e.g., "ICLR 2025"')
+        chat_parser.add_argument('--files-src', '-f', required=True, help='User-provided source directory of files to ingest')
+        chat_parser.add_argument('--question', '-q', required=True, help='User question to answer against the conference knowledge base')
+        
         return parser
 
     def _get_config(self):
@@ -185,6 +179,11 @@ Examples:
             print("✓ 生成成功：会议文档已入库（创建或增量）")
 
             # --- Integrate research streaming to auto-generate a summary report ---
+            from deepinsight.service.research.research import ResearchService
+            from deepinsight.service.schemas.research import ResearchRequest, SceneType, PPTGenerateRequest, ResearchArgs, RetrievalArgs, ArgOptionsGeneric
+            from deepinsight.service.schemas.streaming import Message, MessageContent, MessageContentType
+            from deepinsight.cli.commands.stream import run_research_and_save_report_sync
+            
             research_service = ResearchService(self._get_config())
             # Build a deterministic conversation id for this conference
             base = (short_name or full_name).strip()
@@ -267,6 +266,12 @@ Examples:
             reporter = RichProgressReporter(console=get_console())
             reporter.info("Parsing documents. This may take a while...")
             conf_id, kb_id = asyncio.run(service.ensure_conference_and_ingest_docs(req, reporter=reporter))
+            
+            from deepinsight.service.research.research import ResearchService
+            from deepinsight.service.schemas.research import ResearchRequest, SceneType, ResearchArgs, RetrievalArgs, ArgOptionsGeneric
+            from deepinsight.service.schemas.streaming import Message, MessageContent, MessageContentType
+            from deepinsight.cli.commands.stream import run_research_and_save_report_sync, make_report_filename
+            
             research_service = ResearchService(self._get_config())
             base = (short_name or full_name).strip()
             slug = re.sub(r"\s+", "-", base)
@@ -307,6 +312,8 @@ Examples:
             return 1
 
     def _create_retrieval_options(self, config: Config, kb_id: int):
+        from deepinsight.service.schemas.research import ResearchArgs, RetrievalArgs, ArgOptionsGeneric
+        
         rag_engine = self.get_rag_engine_type(config)
         retrieval_options = [
             ArgOptionsGeneric(

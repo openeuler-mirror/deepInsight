@@ -13,7 +13,7 @@ from langchain_core.runnables import RunnableConfig
 
 
 from deepinsight.core.utils.utils import get_today_str
-from deepinsight.core.agent.deep_research.supervisor import ClarifyWithUser, graph as deep_researcher, review_by_expert, publish_result
+from deepinsight.core.agent.resch_gen.supervisor import ClarifyWithUser, graph as deep_researcher, review_by_expert, publish_result
 from deepinsight.core.types.research import ClarifyNeedUser
 from deepinsight.core.types.graph_config import ExpertDef
 from deepinsight.core.utils.research_utils import load_expert_config, parse_research_config

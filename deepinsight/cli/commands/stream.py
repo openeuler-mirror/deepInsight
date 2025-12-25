@@ -19,6 +19,7 @@ import sys
 from enum import Enum
 from datetime import datetime
 from urllib.parse import urlparse
+import uuid
 
 from rich.console import Console
 from rich.live import Live
@@ -559,15 +560,44 @@ def run_research_and_save_report_sync(
     live: Optional[Live] = None,
 ) -> str:
     """同步包装器，便于在非 async 的 CLI 命令中调用。"""
-    return asyncio.run(
-        run_research_and_save_report(
+    async def _runner():
+        """
+        Wrap the actual coroutine so we can tweak the running loop before executing.
+
+        In particular, Tavily / httpx / anyio stacks may try to close network
+        streams during loop shutdown and occasionally raise
+        `RuntimeError("Event loop is closed")` inside background tasks, which
+        shows up as noisy "Task exception was never retrieved" logs.
+
+        We install a custom exception handler on the running loop to silence
+        exactly this benign case while preserving the default behaviour for
+        all other errors.
+        """
+
+        loop = asyncio.get_running_loop()
+        default_handler = loop.get_exception_handler()
+
+        def _exception_handler(loop, context):
+            exc = context.get("exception")
+            if isinstance(exc, RuntimeError) and str(exc) == "Event loop is closed":
+                # Ignore event-loop-closed noise from background cleanup tasks
+                return
+            if default_handler is not None:
+                default_handler(loop, context)
+            else:
+                loop.default_exception_handler(context)
+
+        loop.set_exception_handler(_exception_handler)
+
+        return await run_research_and_save_report(
             service=service,
             request=request,
             result_file_stem=result_file_stem,
             gen_pdf=gen_pdf,
             live=live,
         )
-    )
+
+    return asyncio.run(_runner())
     
 def non_empty_validator():
     return Validator.from_callable(

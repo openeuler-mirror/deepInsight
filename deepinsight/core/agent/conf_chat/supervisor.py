@@ -21,8 +21,8 @@ from deepinsight.utils.tavily_key_utils import select_api_key
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.core.types.research import FinalResult
 from deepinsight.core.types.graph_config import RetrievalType
-from deepinsight.core.agent.conference_research.supervisor import graph as conference_research_graph
-from deepinsight.core.agent.conference_qa.statistics import graph as statistics_graph
+from deepinsight.core.agent.conf_gen.supervisor import graph as conference_research_graph
+from deepinsight.core.agent.conf_chat.statistics import graph as statistics_graph
 from deepinsight.core.tools.tavily_search import tavily_search
 from deepinsight.core.tools.wordcloud_tool import generate_wordcloud
 from deepinsight.service.schemas.research import SceneType
@@ -380,7 +380,7 @@ async def deep_research_team_node(state: SupervisorState, config: RunnableConfig
     parent_configurable = config.get("configurable", {})
     deep_research_config = {
         **parent_configurable,
-        "prompt_group": SceneType.CONFERENCE_RESEARCH.value,
+        "prompt_group": "conf_gen_supervisor",
         "allow_user_clarification": False,
         "allow_edit_research_brief": False,
         "allow_edit_report_outline": False,

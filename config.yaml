@@ -71,23 +71,23 @@ prompt_management:
     secret_key: ${LANGFUSE_SECRET_KEY}
     host: ${LANGFUSE_HOST}
   groups:
-    deep_research:
+    resch_gen:
       label: "latest"
-    conference_qa:
+    conf_chat:
       label: "latest"
-    conference_research:
+    conf_gen_supervisor:
       label: "latest"
-    conference_overview:
+    conf_gen_overview:
       label: "latest"
-    conference_submission:
+    conf_gen_submission:
       label: "latest"
-    conference_keynotes:
+    conf_gen_keynotes:
       label: "latest"
-    conference_topic:
+    conf_gen_topic:
       label: "latest"
-    conference_best_papers:
+    conf_gen_best_papers:
       label: "latest"
-    conference_ppt_generate:
+    conf_gen_ppt_generate:
       label: "latest"
     expert_review:
       label: "latest"

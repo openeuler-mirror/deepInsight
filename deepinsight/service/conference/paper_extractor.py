@@ -10,6 +10,7 @@ import logging
 import traceback
 from typing import List, Optional, Set, Tuple, Annotated, Dict, NamedTuple
 from langchain_core.messages import HumanMessage
+from langfuse.langchain import CallbackHandler
 from pydantic import RootModel, Field, ValidationError
 from os.path import abspath, dirname, join as join_path
 import yaml
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from langchain.agents import create_agent
-from langchain.agents.structured_output import ToolStrategy
+from langchain.agents.structured_output import AutoStrategy
 from langchain_core.language_models import BaseChatModel
 from langchain_text_splitters import MarkdownHeaderTextSplitter
 from langchain_core.documents import Document
@@ -35,7 +36,10 @@ from deepinsight.databases.models.academic import (
     Paper,
     PaperAuthorRelation,
 )
-from deepinsight.utils.llm_utils import init_langchain_models_from_llm_config
+from deepinsight.utils.llm_utils import (
+    init_langchain_models_from_llm_config,
+    parse_json_text_to_model,
+)
 from deepinsight.service.schemas.paper_extract import (
     ExtractPaperMetaRequest,
     ExtractPaperMetaResponse,
@@ -516,28 +520,50 @@ class PaperExtractionService:
                 model=chat_model,
                 tools=[search_tool],
                 system_prompt=_FIX_AFFILIATION_SYSTEM_PROMPT_TEXT,
-                response_format=ToolStrategy(self._AffiliationMap),
             )
             names = json.dumps(list(affiliations), ensure_ascii=False)
             result = await agent.with_retry().ainvoke(
                 input=dict(
                     messages=[HumanMessage(content=f"Fix these names into their full legal English name of the organization registered\n:{names}")],
                 ),
+                config={"callbacks": [CallbackHandler()]},
             )
-            mapping = result["structured_response"]
+
+            # 从 agent 返回的 messages 中拿到最后一条 AI 回复内容，再从中解析 JSON
+            messages = result.get("messages") if isinstance(result, dict) else None
+            if not messages:
+                logging.warning("Affiliation correction agent returned no messages.")
+                return llm_meta
+
+            last_msg = messages[-1]
+            content = getattr(last_msg, "content", None)
+
+            # LangChain 有时会返回 list[dict] 结构的 content，这里做一次统一
+            if isinstance(content, list):
+                try:
+                    content = "".join(
+                        part.get("text", "") if isinstance(part, dict) else str(part)
+                        for part in content
+                    )
+                except Exception:
+                    content = str(content)
+
+            if not isinstance(content, str) or not content.strip():
+                logging.warning(
+                    "Affiliation correction agent last message has invalid content: "
+                    f"type={type(content).__name__}"
+                )
+                return llm_meta
+
+            # 使用通用工具：从文本中提取 JSON 并解析为 RootModel
+            mapping_model = parse_json_text_to_model(content, self._AffiliationMap)
+            mapping = mapping_model.root
         except Exception as e:
             logging.warning(
                 f"Affiliation correction agent invocation failed: {type(e).__name__}: {e}",
                 exc_info=True,
             )
             logging.error(traceback.format_exc())
-            return llm_meta
-        
-        # Ensure mapping is a plain dict before downstream processing
-        if isinstance(mapping, self._AffiliationMap):
-            mapping = mapping.root
-        elif not isinstance(mapping, dict):
-            logging.warning(f"Affiliation correction output is not a valid map (type={type(mapping).__name__})")
             return llm_meta
 
         mapping = await self._fix_by_ror(mapping, chat_model)

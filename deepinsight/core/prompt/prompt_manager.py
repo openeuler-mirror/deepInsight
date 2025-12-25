@@ -36,10 +36,42 @@ class PromptMeta(BaseModel):
 
 def load_group_modules():
     group_modules = {}
-    for module_info in pkgutil.iter_modules(prompts_pkg_path):
-        module_name = module_info.name
-        module = importlib.import_module(f"deepinsight.core.prompt.{module_name}")
-        group_modules[module_name] = module
+    """
+    递归扫描 deepinsight.core.prompt 包下的所有子模块 / 子包，支持多层级目录。
+
+    注册规则：
+    - 使用「相对路径（去掉 deepinsight.core.prompt 前缀）各级目录 + 文件名」用下划线拼接作为 group 名
+      例如 deepinsight.core.prompt.conf_chat.conference_qa -> group: conf_chat_conference_qa
+      顶层文件 deepinsight.core.prompt.deep_research -> group: deep_research
+    - 如果不同子目录下出现重名文件，则后注册的会覆盖先前的，并打 warning
+    """
+    for finder, fullname, ispkg in pkgutil.walk_packages(prompts_pkg_path, prefix="deepinsight.core.prompt."):
+        # fullname 形如 deepinsight.core.prompt.conf_chat.conference_qa
+        try:
+            module = importlib.import_module(fullname)
+        except Exception as e:
+            logging.error(f"Failed to import prompt module '{fullname}': {e}")
+            continue
+
+        # 去掉前缀 deepinsight.core.prompt.，将后续各级路径用下划线拼接
+        parts = fullname.split(".")
+        # 基准前缀 parts: ["deepinsight", "core", "prompt"]
+        base_len = len("deepinsight.core.prompt".split("."))
+        relative_parts = parts[base_len:]  # e.g. ["conf_chat", "conference_qa"] 或 ["deep_research"]
+        if not relative_parts:
+            # 理论上不会发生，但保险处理
+            continue
+        group_name = "_".join(relative_parts)
+
+        if group_name in group_modules:
+            logging.warning(
+                "Duplicate prompt module name detected: '%s' (full: '%s'), "
+                "already mapped to '%s'. The later one will overwrite.",
+                group_name,
+                fullname,
+                getattr(group_modules[group_name], "__name__", "unknown"),
+            )
+        group_modules[group_name] = module
     return group_modules
 
 _GROUP_MODULES = load_group_modules()
@@ -161,11 +193,11 @@ class PromptManager:
                 except Exception as e:
                     logging.error(
                         f"Failed to load local prompts for group '{group_name}'. "
-                        f"Expected file core/prompts/{group_name}.py was not found or contains errors."
+                        f"Expected file core/prompt/**/{group_name}.py was not found or contains errors."
                     )
                     raise FileNotFoundError(
                         f"Failed to load local prompts for group '{group_name}'. "
-                        f"Expected file core/prompts/{group_name}.py was not found or contains errors."
+                        f"Expected file core/prompt/**/{group_name}.py was not found or contains errors."
                     )
 
     def get_prompt(self, name: str, group: str) -> ChatPromptTemplate:

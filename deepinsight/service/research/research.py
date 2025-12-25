@@ -32,11 +32,11 @@ from deepinsight.service.streaming.stream_adapter import StreamEventAdapter
 from deepinsight.service.ppt.template_service import PPTTemplateService
 from deepinsight.utils.llm_utils import init_langchain_models_from_llm_config
 from deepinsight.utils.common import safe_get
-from deepinsight.core.agent.conference_qa.supervisor import graph as conference_qa_graph
-from deepinsight.core.agent.conference_research.supervisor import graph as conference_research_graph
-from deepinsight.core.agent.deep_research.supervisor import graph as deep_research_graph
-from deepinsight.core.agent.deep_research.parallel_supervisor import graph as parallel_deep_research_graph
-from deepinsight.core.agent.conference_research.ppt_generate import graph as ppt_generate_graph
+from deepinsight.core.agent.conf_chat.supervisor import graph as conference_qa_graph
+from deepinsight.core.agent.conf_gen.supervisor import graph as conference_research_graph
+from deepinsight.core.agent.resch_gen.supervisor import graph as deep_research_graph
+from deepinsight.core.agent.resch_gen.parallel_supervisor import graph as parallel_deep_research_graph
+from deepinsight.core.agent.conf_gen.ppt_generate import graph as ppt_generate_graph
 from deepinsight.core.types.graph_config import RetrievalConfig, RetrievalArgs, RetrievalType
 from deepinsight.service.schemas.research import ResearchRequest, SceneType, PPTGenerateRequest, PdfGenerateRequest, ArgOptionsGeneric, LLMConfig
 from deepinsight.utils.trans_md_to_pdf import save_markdown_as_pdf
@@ -82,8 +82,15 @@ class ResearchService:
         allow_edit_research_brief = req.allow_edit_research_brief if req.allow_edit_research_brief is not None else bool(safe_get(deep_cfg, lambda o: o.allow_edit_research_brief, False))
         allow_edit_report_outline = req.allow_edit_report_outline if req.allow_edit_report_outline is not None else bool(safe_get(deep_cfg, lambda o: o.allow_edit_report_outline, False))
         final_report_model = req.final_report_model if getattr(req, "final_report_model", None) is not None else safe_get(deep_cfg, lambda o: o.final_report_model, None)
- 
-        prompt_group = req.scene_type
+
+        if req.scene_type == SceneType.DEEP_RESEARCH:
+            prompt_group = "resch_gen"
+        elif req.scene_type == SceneType.CONFERENCE_RESEARCH:
+            prompt_group = "conf_gen_supervisor"
+        elif req.scene_type == SceneType.CONFERENCE_QA:
+            prompt_group = "conf_chat"
+        else:
+            raise ValueError(f"Unknown scene type: {req.scene_type}")
 
         # Load base stream_blocklist from config (common configuration)
         stream_filter_text: Dict[str, bool] = safe_get(
