@@ -57,7 +57,7 @@ async def person_image_search_tool(person_name: str, person_background: str, con
             "role": "user",
             "content": user_prompt
         }]
-    result = await agent.invoke({"messages": input_messages})
+    result = await agent.ainvoke({"messages": input_messages})
     result_text = result["messages"][-1].content
     return result_text
 
@@ -134,7 +134,7 @@ async def analyze_single_keynote(keynote_info: str, output_dir: str, config: Run
         config_dict = dict(config) if not isinstance(config, dict) else config
         config_dict = {**config_dict, "recursion_limit": 300}
 
-        result = await agent.invoke({"messages": input_messages}, config=config_dict)
+        result = await agent.ainvoke({"messages": input_messages}, config=config_dict)
     except Exception as e:
         logging.error(f"keynote分析失败: {keynote_info}, 错误: {e}")
         import traceback
