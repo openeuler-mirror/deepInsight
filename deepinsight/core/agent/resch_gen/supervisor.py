@@ -40,6 +40,14 @@ from deepinsight.core.utils.llm_token_utils import (
     get_model_token_limit,
 )
 from deepinsight.core.utils.progress_utils import progress_stage
+from deepinsight.core.types.conference_constants import (
+    ConferencePromptGroup,
+    ConferenceFolderNames,
+    is_best_papers_group,
+    is_keynotes_group,
+    get_folder_name_for_prompt_group,
+    get_md_filename_for_prompt_group,
+)
 
 
 class ConductResearch(BaseModel):
@@ -384,9 +392,9 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
             fs_instance = MemoryMCPFilesystem()
             # 必须提前创建好目录，大模型在使用过程中会查询目录存在不存在，不存在则报错
             fs_instance.create_folders(f"/{rc.run_id}",
-                                       ["conference_best_papers", "conference_keynotes"])
-            if rc.prompt_group == "conference_keynotes":
-                output_file = f"/{str(rc.run_id)}/{rc.prompt_group}"
+                                       [ConferenceFolderNames.BEST_PAPERS, ConferenceFolderNames.BEST_PAPERS])
+            if is_keynotes_group(rc.prompt_group):
+                output_file = f"/{str(rc.run_id)}/{get_folder_name_for_prompt_group(rc.prompt_group)}"
                 from langchain.agents import create_agent
                 logging.debug(f"final_report:{final_report}, output_file: {output_file}")
                 try:
@@ -414,9 +422,9 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                 keynotes_content = "\n".join(content for _, content in keynotes_files_content_map.items())
                 logging.debug(f"keynotes_content: {keynotes_content}")
                 final_report.content = keynotes_content
-            elif rc.prompt_group == "conference_best_papers":
+            elif is_best_papers_group(rc.prompt_group):
                 from langchain.agents import create_agent
-                output_file = f"/{str(rc.run_id)}/{rc.prompt_group}"
+                output_file = f"/{str(rc.run_id)}/{get_folder_name_for_prompt_group(rc.prompt_group)}"
                 agent = create_agent(
                     model=llm,
                     tools=[batch_analyze_papers]
@@ -437,7 +445,13 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                 # fs_instance.export_to_real_fs(real_dir=output_path, folder_path=output_dir)
 
 
-            output_file = f"/{str(rc.run_id)}/{rc.prompt_group}.md"
+            # 根据 prompt_group 获取对应的文件名
+            try:
+                md_filename = get_md_filename_for_prompt_group(rc.prompt_group)
+                output_file = f"/{str(rc.run_id)}/{md_filename}"
+            except ValueError:
+                # 如果 prompt_group 不生成 md 文件（如 best_papers），则使用 prompt_group 作为文件名
+                output_file = f"/{str(rc.run_id)}/{rc.prompt_group}.md"
             # example: 如何将最终结果写入到临时文件
             fs_instance.write_file(file_path=f"{output_file}", content=final_report.content)
 
@@ -611,7 +625,7 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
     for tool_call in think_tool_calls:
         reflection_content = tool_call["args"]["reflection"]
         prompt_group: str = rc.prompt_group
-        if prompt_group == "conference_best_papers":
+        if is_best_papers_group(prompt_group):
             research_brief = state['research_brief']
             all_tool_messages.append(ToolMessage(
                 content=f"research_brief：{research_brief},请严格遵守研究列表，不要遗漏任意步骤，Reflection recorded: {reflection_content}",

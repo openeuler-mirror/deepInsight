@@ -15,7 +15,7 @@ import uuid
 import os
 import io
 import asyncio
-from typing import AsyncGenerator, Any, Dict, Optional, Set, Tuple
+from typing import AsyncGenerator, Any, Dict, List, Optional, Set, Tuple
 import json
 import base64
 import logging
@@ -38,6 +38,7 @@ from deepinsight.core.agent.resch_gen.supervisor import graph as deep_research_g
 from deepinsight.core.agent.resch_gen.parallel_supervisor import graph as parallel_deep_research_graph
 from deepinsight.core.agent.conf_gen.ppt_generate import graph as ppt_generate_graph
 from deepinsight.core.types.graph_config import RetrievalConfig, RetrievalArgs, RetrievalType
+from deepinsight.core.types.conference_constants import ConferenceFileNames, ConferenceFolderNames
 from deepinsight.service.schemas.research import ResearchRequest, SceneType, PPTGenerateRequest, PdfGenerateRequest, ArgOptionsGeneric, LLMConfig
 from deepinsight.utils.trans_md_to_pdf import save_markdown_as_pdf
 
@@ -338,9 +339,9 @@ class ResearchService:
             return buffer, file_name
 
         ordered_files = [
-            "conference_overview.md",
-            "conference_keynotes.md",
-            "conference_topic.md",
+            ConferenceFileNames.OVERVIEW_MD,
+            ConferenceFileNames.KEYNOTES_MD,
+            ConferenceFileNames.TOPIC_MD,
         ]
         value_mining_dir = os.path.join(base_dir, "conference_value_mining")
         value_mining_files = [
@@ -351,8 +352,8 @@ class ResearchService:
             "research_hotspots.md",
             "high_potential_tech_transfer.md",
         ]
-        summary_file = "conference_summary.md"
-        best_papers_dir = os.path.join(base_dir, "conference_best_papers")
+        summary_file = ConferenceFileNames.SUMMARY_MD
+        best_papers_dir = os.path.join(base_dir, ConferenceFolderNames.BEST_PAPERS)
 
         markdown_parts = []
 
@@ -388,7 +389,7 @@ class ResearchService:
 
         merged_markdown = "\n\n---\n\n".join(markdown_parts)
 
-        overview_path = os.path.join(base_dir, "conference_overview.md")
+        overview_path = os.path.join(base_dir, ConferenceFileNames.OVERVIEW_MD)
         report_name = "未知会议"
         if os.path.exists(overview_path):
             with open(overview_path, "r", encoding="utf-8") as f:
