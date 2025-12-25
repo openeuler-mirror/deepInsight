@@ -12,6 +12,7 @@ from langgraph.config import get_stream_writer
 from langgraph.graph import StateGraph
 from langgraph.types import Command
 from deepinsight.core.utils.progress_utils import progress_stage
+from deepinsight.core.types.conference_constants import is_best_papers_group
 
 from deepinsight.core.types.research import (
     ErrorResult,
@@ -139,7 +140,7 @@ async def topic_researcher(state: ResearcherState, config: RunnableConfig) -> Co
         group=rc.prompt_group,
     )
 
-    if rc.prompt_group == "conference_best_papers":
+    if is_best_papers_group(rc.prompt_group):
         # Prepare system prompt with MCP context if available
         researcher_prompt = researcher_prompt_template.format(
             mcp_prompt="",

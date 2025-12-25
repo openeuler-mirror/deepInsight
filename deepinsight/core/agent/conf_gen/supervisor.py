@@ -34,6 +34,11 @@ from deepinsight.core.types.research import FinalResult
 from deepinsight.core.agent.resch_gen.supervisor import graph as deep_research_graph
 from deepinsight.core.agent.conf_gen.conf_stat_value_mining import conf_stat_graph
 from deepinsight.core.tools.file_system import register_fs_tools, fs_instance
+from deepinsight.core.types.conference_constants import (
+    ConferencePromptGroup,
+    ConferenceFolderNames,
+    ConferenceFileNames,
+)
 
 
 class ConferenceGraphNodeType(str, Enum):
@@ -41,11 +46,11 @@ class ConferenceGraphNodeType(str, Enum):
     WAIT_QUESTION_CLARIFY = "wait_question_clarify"
     INSIGHT_SUMMARY = "summary"
 
-    CONFERENCE_OVERVIEW = "conf_gen_overview"
-    CONFERENCE_SUBMISSION = "conf_gen_submission"
-    CONFERENCE_KEYNOTE = "conf_gen_keynotes"
-    CONFERENCE_TOPIC = "conf_gen_topic"
-    CONFERENCE_BEST_PAPER = "conf_gen_best_papers"
+    CONFERENCE_OVERVIEW = ConferencePromptGroup.OVERVIEW
+    CONFERENCE_SUBMISSION = ConferencePromptGroup.SUBMISSION
+    CONFERENCE_KEYNOTE = ConferencePromptGroup.KEYNOTES
+    CONFERENCE_TOPIC = ConferencePromptGroup.TOPIC
+    CONFERENCE_BEST_PAPER = ConferencePromptGroup.BEST_PAPERS
 
     def __str__(self):
         return self.value
@@ -235,7 +240,7 @@ async def conference_best_paper_node(state: ConferenceState, config: RunnableCon
         "messages": state["messages"]
     })
     rc = parse_research_config(config)
-    output_file = f"/{str(rc.run_id)}/conference_best_papers"
+    output_file = f"/{str(rc.run_id)}/{ConferenceFolderNames.BEST_PAPERS}"
     paper_files_content_map = fs_instance.read_all_files_in_dir(output_file)
     paper_file_content = "\n".join(content for _, content in paper_files_content_map.items())
     return {
@@ -251,7 +256,7 @@ async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
         name=ConferenceGraphNodeType.INSIGHT_SUMMARY,
         group=rc.prompt_group,
     ).format()
-    output_file = f"/{str(rc.run_id)}/conference_summary.md"
+    output_file = f"/{str(rc.run_id)}/{ConferenceFileNames.SUMMARY_MD}"
     logging.debug(
         f"conference_best_papers_summary:{state.get('conference_best_papers_summary', '')}, conference_topic:{state.get('conference_topic', '')}")
     user_prompt = f"学术会议价值论文列表：{state.get('conference_best_papers_summary', '')},会议主题相关信息：{state.get('conference_topic', '')},保存到路径：{output_file} "
@@ -297,7 +302,7 @@ async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
     output_path = os.path.join(work_root, "conference_report_result", thread_id)
     output_dir = f"/{str(rc.run_id)}/"
     fs_instance.export_to_real_fs(real_dir=output_path, folder_path=output_dir)
-    state['conference_summary'] = fs_instance.read_file(f"{output_dir}/conference_summary.md")
+    state['conference_summary'] = fs_instance.read_file(f"{output_dir}/{ConferenceFileNames.SUMMARY_MD}")
 
     full_text = (
             state.get('conference_overview', '') + '\n\n\n' +

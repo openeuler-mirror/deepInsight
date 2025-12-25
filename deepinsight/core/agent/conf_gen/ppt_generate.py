@@ -22,6 +22,10 @@ from langgraph.graph import StateGraph
 from deepinsight.core.tools.file_download import download_file_from_url
 from deepinsight.core.types.graph_config import ResearchConfig
 from deepinsight.core.utils.research_utils import parse_research_config
+from deepinsight.core.types.conference_constants import (
+    ConferenceFileNames,
+    ConferenceFolderNames,
+)
 
 DEFAULT_LIST_STYLE_DESC = "\n当输出多条内容时，采用markdown列表格式，先给出小标题，再给出内容，示例如下\n  * **你的小标题**: 具体内容\n* **小标题2**: 具体内容\n"
 CONFERENCE_OVERVIEW_EXAMPLE = "以ICML为例: ICML以推动机器学习理论与应用的前沿研究为核心目标，涵盖监督学习、无监督学习、强化学习、生成式AI、多模态学习等基础领域，以及医疗、自动驾驶、气候变化等跨学科应用。作为机器学习领域的 旗舰会议，其论文质量和学术影响力被广泛认可，与NeurIPS、ICLR并称为全球三大机器学习顶会。"
@@ -665,10 +669,10 @@ async def load_conference_sections(state: PPTState, config: RunnableConfig):
     current_thread_work_root = os.path.join(rc.work_root, "conference_report_result", rc.thread_id)
     sections: Dict[str, str] = {}
     for fname in [
-        "conference_overview.md",
-        "conference_keynotes.md",
-        "conference_topic.md",
-        "conference_summary.md",
+        ConferenceFileNames.OVERVIEW_MD,
+        ConferenceFileNames.KEYNOTES_MD,
+        ConferenceFileNames.TOPIC_MD,
+        ConferenceFileNames.SUMMARY_MD,
     ]:
         path = os.path.join(current_thread_work_root, fname)
         if os.path.exists(path):
@@ -677,15 +681,15 @@ async def load_conference_sections(state: PPTState, config: RunnableConfig):
         else:
             sections[fname] = ""
 
-    bp_folder = os.path.join(current_thread_work_root, "conference_best_papers")
+    bp_folder = os.path.join(current_thread_work_root, ConferenceFolderNames.BEST_PAPERS)
     best_papers_texts = []
     if os.path.isdir(bp_folder):
         for fn in os.listdir(bp_folder):
             if fn.endswith(".md"):
                 with open(os.path.join(bp_folder, fn), "r", encoding="utf-8") as f:
                     best_papers_texts.append(f.read())
-    sections["conference_best_papers"] = best_papers_texts
-    statistic_folder = os.path.join(current_thread_work_root, "conference_value_mining")
+    sections[ConferenceFolderNames.BEST_PAPERS] = best_papers_texts
+    statistic_folder = os.path.join(current_thread_work_root, ConferenceFolderNames.VALUE_MINING)
     if os.path.isdir(statistic_folder):
         for fn in os.listdir(statistic_folder):
             if fn.endswith(".md"):
@@ -864,7 +868,7 @@ def make_generate_page(
 
 
 async def generate_overview_page(state: PPTState, config: RunnableConfig):
-    md_content = state["sections"].get("conference_overview.md", "")
+    md_content = state["sections"].get(ConferenceFileNames.OVERVIEW_MD, "")
     if not md_content:
         logging.warning(f"Overview page is empty")
         return
@@ -881,7 +885,7 @@ async def generate_overview_page(state: PPTState, config: RunnableConfig):
     )
     response = await agent.with_retry().ainvoke(
         input=dict(
-            messages=[HumanMessage(content=state["sections"].get("conference_overview.md", ""))]
+            messages=[HumanMessage(content=state["sections"].get(ConferenceFileNames.OVERVIEW_MD, ""))]
         )
     )
     structured_response = response.get("structured_response")
@@ -896,7 +900,7 @@ async def generate_overview_page(state: PPTState, config: RunnableConfig):
 
 
 async def generate_keynotes_page(state: PPTState, config: RunnableConfig):
-    md_content = state["sections"].get("conference_keynotes.md", "")
+    md_content = state["sections"].get(ConferenceFileNames.KEYNOTES_MD, "")
     if not md_content:
         logging.warning(f"Keynote page is empty")
         return
@@ -913,7 +917,7 @@ async def generate_keynotes_page(state: PPTState, config: RunnableConfig):
     )
     response = await agent.with_retry().ainvoke(
         input=dict(
-            messages=[HumanMessage(content=state["sections"].get("conference_keynotes.md", ""))]
+            messages=[HumanMessage(content=state["sections"].get(ConferenceFileNames.KEYNOTES_MD, ""))]
         )
     )
     structured_response: Optional[KeynotePageContentList] = response.get("structured_response")
@@ -930,7 +934,7 @@ async def generate_keynotes_page(state: PPTState, config: RunnableConfig):
 
 
 async def generate_topic_content_page(state: PPTState, config: RunnableConfig):
-    md_content = state["sections"].get("conference_topic.md", "")
+    md_content = state["sections"].get(ConferenceFileNames.TOPIC_MD, "")
     if not md_content:
         logging.warning(f"Topic content page is empty")
         return
@@ -947,7 +951,7 @@ async def generate_topic_content_page(state: PPTState, config: RunnableConfig):
     )
     response = await agent.with_retry().ainvoke(
         input=dict(
-            messages=[HumanMessage(content=state["sections"].get("conference_topic.md", ""))]
+            messages=[HumanMessage(content=state["sections"].get(ConferenceFileNames.TOPIC_MD, ""))]
         )
     )
     structured_response: Optional[TopicContentPageContent] = response.get("structured_response")
@@ -962,7 +966,7 @@ async def generate_topic_content_page(state: PPTState, config: RunnableConfig):
 
 
 async def generate_topic_details_page(state: PPTState, config: RunnableConfig):
-    md_content = state["sections"].get("conference_topic.md", "")
+    md_content = state["sections"].get(ConferenceFileNames.TOPIC_MD, "")
     if not md_content:
         logging.warning(f"Topic details page is empty")
         return
@@ -979,7 +983,7 @@ async def generate_topic_details_page(state: PPTState, config: RunnableConfig):
     )
     response = await agent.with_retry().ainvoke(
         input=dict(
-            messages=[HumanMessage(content=state["sections"].get("conference_topic.md", ""))]
+            messages=[HumanMessage(content=state["sections"].get(ConferenceFileNames.TOPIC_MD, ""))]
         )
     )
     structured_response: Optional[TopicDetailPageContentList] = response.get("structured_response")
@@ -996,7 +1000,7 @@ async def generate_topic_details_page(state: PPTState, config: RunnableConfig):
 
 
 async def generate_best_papers_page(state: PPTState, config: RunnableConfig):
-    best_papers = state["sections"].get("conference_best_papers", [])
+    best_papers = state["sections"].get(ConferenceFolderNames.BEST_PAPERS, [])
     if not best_papers:
         logging.warning(f"Best papers is empty")
         return dict(
@@ -1038,7 +1042,7 @@ async def generate_best_papers_page(state: PPTState, config: RunnableConfig):
 
 
 async def generate_summary_page(state: PPTState, config: RunnableConfig):
-    md_content = state["sections"].get("conference_summary.md", "")
+    md_content = state["sections"].get(ConferenceFileNames.SUMMARY_MD, "")
     if not md_content:
         logging.warning(f"Summary page is empty")
         return
@@ -1055,7 +1059,7 @@ async def generate_summary_page(state: PPTState, config: RunnableConfig):
     )
     response = await agent.with_retry().ainvoke(
         input=dict(
-            messages=[HumanMessage(content=state["sections"].get("conference_summary.md", ""))]
+            messages=[HumanMessage(content=state["sections"].get(ConferenceFileNames.SUMMARY_MD, ""))]
         )
     )
     structured_response = response.get("structured_response")
