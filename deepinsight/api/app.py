@@ -21,7 +21,7 @@ from urllib.parse import quote
 import dotenv
 import uvicorn
 from fastapi import FastAPI, APIRouter, Body, Header
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.responses import FileResponse
 from starlette import status
 
@@ -31,6 +31,7 @@ from deepinsight.service.research.research import ResearchService
 from deepinsight.service.conference.paper_extractor import PaperExtractionService, PaperParseException
 from deepinsight.utils.log_utils import initRootLogger
 from deepinsight.utils.file_storage import get_storage_impl
+from deepinsight.utils.md_render import to_pdf
 from deepinsight.core.utils.research_utils import load_expert_config
 from deepinsight.service.schemas.common import ResponseModel
 from deepinsight.service.schemas.research import ResearchRequest, PPTGenerateRequest, PdfGenerateRequest
@@ -246,6 +247,26 @@ async def ppt_generate(request: PPTGenerateRequest):
         pptx_stream,
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         headers={"Content-Disposition": f"attachment; filename={encoded_file_name}"}
+    )
+
+
+@router.post("/deepinsight/deep_research/pdf/generate")
+async def deep_research_pdf_generate(
+        conversation_id: str = Body("Only to generate the response headers for filename. Can only be ASCII letters."),
+        filename: str = Body("Only to generate the response headers for filename"),
+        md_content: str = Body(description="The real markdown content to generate.")
+):
+    basic_filename = re.compile(r"[^A-Za-z0-9\-_=.]").sub("", conversation_id) + ".pdf"
+    safe_filename = re.compile(r"""[\\/\n\r:*?"<>|]""").sub("", filename)
+    if not safe_filename.lower().endswith(".pdf"):
+        safe_filename += ".pdf"
+    encoded_filename = quote(safe_filename, safe="")
+    return Response(
+        content=to_pdf(md_content, allow_local_files=False),
+        media_type="text/pdf; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; "
+                                        f'filename="deep-research-report-{basic_filename}"; '
+                                        f"filename*=UTF-8''{encoded_filename}"}
     )
 
 
