@@ -392,7 +392,7 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
             fs_instance = MemoryMCPFilesystem()
             # 必须提前创建好目录，大模型在使用过程中会查询目录存在不存在，不存在则报错
             fs_instance.create_folders(f"/{rc.run_id}",
-                                       [ConferenceFolderNames.BEST_PAPERS, ConferenceFolderNames.BEST_PAPERS])
+                                       [ConferenceFolderNames.BEST_PAPERS, ConferenceFolderNames.KEYNOTES])
             if is_keynotes_group(rc.prompt_group):
                 output_file = f"/{str(rc.run_id)}/{get_folder_name_for_prompt_group(rc.prompt_group)}"
                 from langchain.agents import create_agent
