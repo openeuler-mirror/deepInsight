@@ -670,6 +670,7 @@ async def load_conference_sections(state: PPTState, config: RunnableConfig):
     sections: Dict[str, str] = {}
     for fname in [
         ConferenceFileNames.OVERVIEW_MD,
+        ConferenceFileNames.SUBMISSION_MD,
         ConferenceFileNames.KEYNOTES_MD,
         ConferenceFileNames.TOPIC_MD,
         ConferenceFileNames.SUMMARY_MD,

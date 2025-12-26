@@ -17,6 +17,7 @@ from langgraph.types import Command
 
 from deepinsight.core.tools.mem_file_system import mem_file_system_instance
 from deepinsight.core.tools.wordcloud_tool import generate_wordcloud
+from deepinsight.core.types.conference_constants import ConferenceFolderNames
 from deepinsight.core.utils.progress_utils import progress_stage
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.core.tools.tavily_search import tavily_search
@@ -317,7 +318,7 @@ async def static_summary_node(state: ConferenceStaticState, config: RunnableConf
     work_root = getattr(rc, "work_root", None)
     if not work_root:
         work_root = os.getcwd()
-    output_path = os.path.join(work_root, "conference_report_result", rc.thread_id, "conference_value_mining")
+    output_path = os.path.join(work_root, "conference_report_result", rc.thread_id, ConferenceFolderNames.VALUE_MINING)
     output_dir = f"/{str(rc.run_id)}/"
     logging.info(f"static_summary_node output_path:{output_path}, output_path:{output_dir}")
     mem_file_system_instance.sync_with_real_fs(real_dir=output_path, folder_path=output_dir)

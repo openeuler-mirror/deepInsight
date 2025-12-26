@@ -289,7 +289,7 @@ class ResearchService:
                     "models": models,
                     "default_model": default_model,
                     "prompt_manager": PromptManager(self.config.prompt_management),
-                    "prompt_group": "conference_ppt_generate",
+                    "prompt_group": "conf_gen_ppt_generate",
                     # Working path from global config (workspace.work_root), absolute for consistency
                     "work_root": os.path.abspath(self.config.workspace.work_root) if getattr(self.config, "workspace", None) else None,
                     # Relative image folder under work_root for chart outputs
@@ -343,7 +343,7 @@ class ResearchService:
             ConferenceFileNames.KEYNOTES_MD,
             ConferenceFileNames.TOPIC_MD,
         ]
-        value_mining_dir = os.path.join(base_dir, "conference_value_mining")
+        value_mining_dir = os.path.join(base_dir, ConferenceFolderNames.VALUE_MINING)
         value_mining_files = [
             "tech_topics.md",
             "national_tech_profile.md",

@@ -24,16 +24,18 @@ class ConferencePromptGroup:
 class ConferenceFileNames:
     """会议相关的文件名常量"""
     OVERVIEW_MD = "conference_overview.md"
+    SUBMISSION_MD = "conference_submission.md"
     KEYNOTES_MD = "conference_keynotes.md"
     TOPIC_MD = "conference_topic.md"
     SUMMARY_MD = "conference_summary.md"
-    SUBMISSION_MD = "conference_submission.md"
+    BEST_PAPERS_MD = "conference_best_papers.md"
 
 
 class ConferenceFolderNames:
     """会议相关的文件夹名常量"""
     BEST_PAPERS = "conference_best_papers"
     VALUE_MINING = "conference_value_mining"
+    KEYNOTES = "conference_keynotes"
 
 
 def is_best_papers_group(prompt_group: str) -> bool:
@@ -55,8 +57,10 @@ def get_folder_name_for_prompt_group(prompt_group: str) -> str:
     Returns:
         对应的文件夹名，如 "conference_best_papers"
     """
-    if is_best_papers_group(prompt_group) or is_keynotes_group(prompt_group):
+    if is_best_papers_group(prompt_group):
         return ConferenceFolderNames.BEST_PAPERS
+    if is_keynotes_group(prompt_group):
+        return ConferenceFolderNames.KEYNOTES
     # 如果不是 best_papers 或 keynotes，返回 None 或抛出异常
     raise ValueError(f"Unknown prompt_group for folder: {prompt_group}")
 
@@ -75,11 +79,9 @@ def get_md_filename_for_prompt_group(prompt_group: str) -> str:
         ConferencePromptGroup.KEYNOTES: ConferenceFileNames.KEYNOTES_MD,
         ConferencePromptGroup.TOPIC: ConferenceFileNames.TOPIC_MD,
         ConferencePromptGroup.SUBMISSION: ConferenceFileNames.SUBMISSION_MD,
+        ConferencePromptGroup.BEST_PAPERS: ConferenceFileNames.BEST_PAPERS_MD,
     }
     if prompt_group in mapping:
         return mapping[prompt_group]
-    # best_papers 不生成单个 md 文件，而是生成文件夹
-    if is_best_papers_group(prompt_group):
-        raise ValueError(f"best_papers prompt_group does not generate a single md file, use get_folder_name_for_prompt_group instead")
     raise ValueError(f"Unknown prompt_group for md file: {prompt_group}")
 
