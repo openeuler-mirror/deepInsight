@@ -87,7 +87,7 @@ def tech_color_func(word=None, font_size=None, position=None, orientation=None, 
     return random.choice(colors)
 
 
-@tool("generate_wordcloud", return_direct=True)
+@tool("generate_wordcloud", return_direct=False)
 def generate_wordcloud(word_freq: Dict[str, int]) -> str:
     """
     根据词频字典生成词云图片并返回文件路径。
