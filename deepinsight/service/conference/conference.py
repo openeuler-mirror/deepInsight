@@ -61,6 +61,7 @@ from deepinsight.service.schemas.paper_extract import ExtractPaperMetaRequest, E
     DocSegment, PaperMeta
 from deepinsight.core.agent.conf_gen.conf_topic import get_conference_topics
 from deepinsight.utils.file_storage.factory import get_storage_impl
+from deepinsight.utils.tavily_managed import default_tavily_key_manager, TavilyNoEnvError
 from deepinsight.utils.trace_utils import tracepoint
 
 
@@ -203,16 +204,18 @@ explores the interaction of computer systems with related areas such as computer
         _, llm = init_langchain_models_from_llm_config(self._config.llms)
         
         # Check Tavily API key before attempting online search
-        if not os.environ.get("TAVILY_API_KEY"):
+        try:
+            tavily_mgr = default_tavily_key_manager()
+        except TavilyNoEnvError:
             raise self.ConferenceQueryException(
-                "Environment variable `TAVILY_API_KEY` not detected. Please configure it and try again: for example, run `export TAVILY_API_KEY=<your_key>` in your shell or set it in the project's `.env` file."
+                "Environment variable `TAVILY_API_KEY` and `TAVILY_API_KEYS` not detected. Please configure one of them"
+                " and try again: for example, run `export TAVILY_API_KEY=<your_key>` in your shell or set it in the "
+                "project's `.env` file."
             )
-        
         # Initialize search tool (best-effort)
         tools = []
         try:
-            from langchain_tavily import TavilySearch
-            tools = [TavilySearch()]
+            tools = [tavily_mgr.tool()]
         except Exception:
             pass
         

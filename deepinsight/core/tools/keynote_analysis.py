@@ -9,7 +9,6 @@ from typing import List, Dict
 from langchain.agents.middleware import ModelFallbackMiddleware
 from langchain.tools import tool
 from langchain_core.runnables import RunnableConfig
-from langchain_tavily import TavilySearch
 
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.core.utils.tool_utils import CoerceToolOutput
@@ -18,7 +17,8 @@ from deepinsight.core.tools.file_system import register_fs_tools, fs_instance
 
 import os
 from langchain.tools import tool
-from langchain_tavily import TavilySearch
+
+from deepinsight.utils.tavily_managed import default_tavily_key_manager
 
 
 @tool
@@ -32,7 +32,7 @@ async def person_image_search_tool(person_name: str, person_background: str, con
 
     rc = parse_research_config(config)
 
-    tool_instance = TavilySearch(
+    tool_instance = default_tavily_key_manager().tool(
         max_results=10,
         topic="general",
         include_answer=True,
@@ -79,7 +79,7 @@ async def analyze_single_keynote(keynote_info: str, output_dir: str, config: Run
         rc = parse_research_config(config)
         tools = register_fs_tools(fs_instance)
 
-        tavily_instance = TavilySearch(
+        tavily_instance = default_tavily_key_manager().tool(
             max_results=2,
             topic="general",
             include_answer=True,
