@@ -1,0 +1,71 @@
+/* 默认布局文件：A4，标题使用黑体，正文使用宋体。 */
+@page {
+  size: A4;
+  margin: 2cm;
+  padding-top: 0.5cm;
+  padding-bottom: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+body {
+  font-size: 12pt;  /* 小4号 */
+  line-height: 1.5;
+  margin: 0;
+  padding: 0;
+}
+h1 {
+  font-size: 18pt;  /* 小2号 */
+}
+h2 {
+  font-size: 15pt;  /* 小3号 */
+}
+h1, h2, h3 {
+  margin: 0.5em 0;
+  line-height: 1;
+}
+
+h3, h4, h5, h6, p, li, td, th {
+  font-size: 12pt;  /* 小4号 */
+}
+p {
+  text-indent: 2em;
+}
+p, li, a
+{
+  text-align: justify;
+  text-align-last: left;
+}
+/* 仅适用于 weasyprint: 使 p 标签内换行后仍然具有缩进 */
+p>br::after {
+  display: inline;
+  content: "";
+  padding: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  margin-left: 0;
+  margin-right: 2em;
+  border: 0;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 6pt auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 6pt auto;
+  page-break-inside: avoid;
+}
+th, td {
+  border: 1px solid black;
+  padding: 0.5em;
+  text-align: left;
+  background: none;
+}
+th {
+  font-weight: bold;
+}

@@ -1,0 +1,29 @@
+# 字体列表
+# 当前映射包含 宋体/黑体/西文衬线/西文无衬线/代码块五组字体。五组字体分为已通过 Dockerfile 安装和视为系统中已存在两种（如果一组为空，这个文件中会省略）。
+# 使用映射 YAML 并通过代码内联到 font-family 中可增强渲染器语法兼容性。
+# alias 可认为与 CSS @font-face 等效（但只能使用系统已加载的字体）
+# style 的 filter 与 CSS 筛选器等价，fonts 相当于指定 CSS font-family
+# 
+# 自定义字体映射文件的 alias 与 style 均无需与本文件保持一致，只需 style 中列出的字体均可在 alias 中找到
+# Emoji 字体在 Dockerfile 中安装了 Noto Color Emoji 且靠 fontconfig 自动查找
+alias:
+  # 宋体（系统环境提供/通过Dockerfile安装）
+  Songti-System: ["SimSun", "STSong", "Songti SC", "Songti TC", "SimSun-18030", "NSimSun"]
+  Songti-Custom: ["Noto Serif CJK SC", "Noto Serif CJK TC", "Noto Serif CJK HK", "Noto Serif CJK JP", "Noto Serif CJK KR"]
+
+  Heiti-System: ["SimHei", "Microsoft YaHei", "Microsoft YaHei UI", "Hei SC", "Heiti SC", "Hiragino Sans GB"]
+  Heiti-Custom: ["Noto Sans CJK SC", "Noto Sans CJK TC", "Noto Sans CJK HK", "Noto Sans CJK JP", "Noto Sans CJK KR", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei"]
+
+  Latin-Sans-System: ["DejaVu Sans", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Lucida Grande", "Arial"]
+  Latin-Serif-System: ["DejaVu Serif", "Times New Roman"]
+
+  Code-System: ["SFMono-Regular", "Menlo", "Monaco", "Consolas", "DejaVu Sans Mono", "Liberation Mono", "Courier New", "monospace"]
+  Code-Custom: ["Noto Sans Mono CJK SC", "Noto Sans Mono CJK TC", "Noto Sans Mono CJK HK", "Noto Sans Mono CJK JP", "Noto Sans Mono CJK KR"]
+
+style:
+  - filter: "h1, h2, h3, h4, h5, h6, th"
+    fonts: ["Heiti-Custom", "Heiti-System", "Latin-Sans-System"]
+  - filter: "a, p, img, td"
+    fonts: ["Songti-Custom", "Songti-System", "Latin-Serif-System"]
+  - filter: "code, pre, kbd, samp"
+    fonts: ["Code-Custom", "Code-System", "Songti-Custom", "Songti-System", "Latin-Sans-System"]
