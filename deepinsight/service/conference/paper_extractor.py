@@ -719,6 +719,7 @@ _METADATA_EXTRACT_PROMPT = """
 ## Role
 You are an expert academic metadata extraction agent.
 Your task is to read the given paper text and extract structured metadata in a strict JSON format.
+When outputting JSON, escape all backslashes and LaTeX characters so that it is valid JSON. For every "\\" output "\\\\".
 
 ## Task
 Extract the following metadata fields from the provided paper content:

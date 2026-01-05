@@ -6,6 +6,7 @@ __all__ = [
 
 from logging import getLogger
 from os.path import abspath, commonpath, dirname, isdir, join as path_join
+from typing import Literal
 from urllib.parse import urlparse
 
 import yaml
@@ -142,50 +143,46 @@ def fix_md_list(text: str) -> str:
     lines = text.splitlines(keepends=True)
     if not lines:
         return text
-    in_code_block = False
-    fence_char = None
     last_blank = True
-    in_list = False
+    last_list = False
     output = []
-    for raw in lines:
-        strip = raw.rstrip()
-        if strip.startswith("```") or strip.startswith("~~~"):
-            # code block fence
-            last_blank = False
-            if not in_code_block:
-                in_code_block = True
-                fence_char = {strip[0]}
-            elif set(strip) == fence_char:
-                in_code_block = False
-                fence_char = None
-            output.append(raw)
-            continue
-        if in_code_block:
-            last_blank = False
-            output.append(raw)
-            continue
-        if not strip:
-            last_blank = True
-            in_list = False
-            output.append(raw)
-            continue
-        if in_list:
-            last_blank = False
-            output.append(raw)
-            continue
-
-        ordered_list_prefix = strip.split(".", 1)[0].split(")", 1)[0]
-        next_char_empty = not strip[min([len(ordered_list_prefix) + 1, len(strip) - 1])].strip()
-
-        ordered_list = ordered_list_prefix.isdigit() and next_char_empty
-        unordered_list = (strip[0] in "-*+") and (len(strip) > 1) and not strip[1].strip()
-        if ordered_list or unordered_list:
-            if not (in_list or last_blank):
+    line_index = 0
+    num_lines = len(lines)
+    while line_index < num_lines:
+        raw = lines[line_index]
+        if raw.startswith("```") or raw.startswith("~~~"):  # may be fenced code block fence
+            jump_to = _md_consume_code_block(lines, line_index)
+            if last_list:
                 output.append("\n")
-            in_list = True
+            output.extend(lines[line_index:jump_to])
+            line_index = jump_to
+            last_blank = False
+            last_list = False
+            continue
+        strip = raw.rstrip()
+        if not strip:
+            line_index += 1
+            last_blank = True
+            last_list = False
             output.append(raw)
             continue
+        list_type: Literal["order", "unorder", False] = _md_is_top_level_list(strip)
+        if list_type:
+            list_type: Literal["order", "unorder"]
+            jump_to = _md_consume_list_lines(lines, line_index, list_type)
+            if not last_blank:
+                output.append("\n")
+            output.extend(lines[line_index:jump_to])
+            line_index = jump_to
+            last_blank = False
+            last_list = True
+            continue
+        # current not one of list/code/blank
+        line_index += 1
+        if last_list and not last_blank:
+            output.append("\n")
         last_blank = False
+        last_list = False
         output.append(raw)
 
     return "".join(output)
@@ -198,3 +195,77 @@ def _fix_unexpected_break(html: str) -> str:
             if br.next_sibling and isinstance(br.next_sibling, str):
                 br.next_sibling.replace_with(br.next_sibling.lstrip("\n"))
     return str(soup)
+
+
+def _md_code_fence_len(line: str) -> int:
+    """
+    Returns 0 if this is not a legal str for code block begin fence, otherwise returns the length of fence.
+
+    Assuming that `line` should not be empty and already starts with ~~~ or ```.
+    """
+    fence = line[0]
+    fence_len = 3
+    for c in line[3:]:
+        if c != fence:
+            break
+        fence_len += 1
+
+    for c in line[fence_len:]:
+        if c == fence:
+            return 0
+    return fence_len
+
+
+def _md_consume_code_block(lines: list[str], code_begins_at: int) -> int:
+    """
+    Return the line index of the first line after this code block (or normal paragraph).
+
+    Assuming that `lines[code_begins_at]` starts with ``` or ~~~.
+    """
+    current_line = lines[code_begins_at]
+    fence_char = current_line[0]
+    fence_len = _md_code_fence_len(current_line)
+    if not fence_len:
+        return code_begins_at + 1
+    end_fence = fence_char * fence_len
+
+    line_index = code_begins_at + 1
+    for raw in lines[line_index:]:
+        line_index += 1
+        if not raw.startswith(end_fence):
+            continue
+        if set(raw.rstrip()) == {fence_char}:
+            return line_index
+    # broken code block
+    return len(lines)
+
+
+def _md_consume_list_lines(lines: list[str], begins_at: int, list_type: Literal["order", "unorder"]) -> int:
+    """
+    Return the line index of the first line after this list block (or normal paragraph).
+
+    `list_type` is the return value of `_md_is_top_level_list(lines[begins_at])` and should be 'order' or 'unorder'.
+    """
+    line_index = begins_at + 1
+    for raw in lines[line_index:]:
+        if not raw.strip():
+            return line_index
+        if raw.startswith("\t") or raw.startswith(" "):
+            line_index += 1
+            continue
+        if _md_is_top_level_list(raw) != list_type:
+            return line_index
+        line_index += 1
+    return len(lines)
+
+
+def _md_is_top_level_list(line: str) -> Literal["order", "unorder", False]:
+    strip = line.strip()
+    ordered_list_prefix = strip.split(".", 1)[0].split(")", 1)[0]
+    next_char_empty = not strip[min([len(ordered_list_prefix) + 1, len(strip) - 1])].strip()
+
+    if ordered_list_prefix.isdigit() and next_char_empty:
+        return "order"
+    if (strip[0] in "-*+") and (len(strip) > 1) and not strip[1].strip():
+        return "unorder"
+    return False
