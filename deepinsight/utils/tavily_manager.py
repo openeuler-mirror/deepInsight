@@ -312,7 +312,7 @@ class RotatingKeyManager(TavilyBaseKeyManager):
         self.__log_status("invalid key report" if invalid else "out of limit report")
 
 
-class DefaultKeyManager(RotatingKeyManager):
+class EnvironKeyManager(RotatingKeyManager):
     def __init__(self):
         env_key = os.getenv("TAVILY_API_KEYS") or os.getenv("TAVILY_API_KEY")
         if not env_key:
@@ -321,8 +321,8 @@ class DefaultKeyManager(RotatingKeyManager):
         super().__init__(keys)
 
 
-def default_tavily_key_manager():
-    return make_singleton(DefaultKeyManager)
+def tavily_key_manager():
+    return make_singleton(EnvironKeyManager)
 
 
 class TavilySearch(_OriginTavily):

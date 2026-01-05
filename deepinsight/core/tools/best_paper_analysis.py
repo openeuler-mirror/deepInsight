@@ -13,7 +13,7 @@ from deepinsight.core.utils.tool_utils import create_retrieval_tool, CoerceToolO
 from deepinsight.core.types.graph_config import RetrievalType
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.utils.db_schema_utils import get_db_models_source_markdown
-from deepinsight.utils.tavily_managed import default_tavily_key_manager
+from deepinsight.utils.tavily_manager import tavily_key_manager
 
 
 # ----------------- 单篇论文解析函数 -----------------
@@ -34,7 +34,7 @@ async def analyze_single_paper(paper_info: str, output_dir: str, config: Runnabl
         fs_instance = MemoryMCPFilesystem()
         tools = register_fs_tools(fs_instance)
 
-        tavily_instance = default_tavily_key_manager().tool(
+        tavily_instance = tavily_key_manager().tool(
             max_results=2,
             topic="general",
             include_answer=True,

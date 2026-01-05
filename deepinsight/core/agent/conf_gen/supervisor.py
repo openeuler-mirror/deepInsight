@@ -38,7 +38,7 @@ from deepinsight.core.types.conference_constants import (
     ConferenceFolderNames,
     ConferenceFileNames,
 )
-from deepinsight.utils.tavily_managed import default_tavily_key_manager
+from deepinsight.utils.tavily_manager import tavily_key_manager
 
 
 class ConferenceGraphNodeType(str, Enum):
@@ -261,7 +261,7 @@ async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
         f"conference_best_papers_summary:{state.get('conference_best_papers_summary', '')}, conference_topic:{state.get('conference_topic', '')}")
     user_prompt = f"学术会议价值论文列表：{state.get('conference_best_papers_summary', '')},会议主题相关信息：{state.get('conference_topic', '')},保存到路径：{output_file} "
     tools = register_fs_tools(fs_instance)
-    tool_instance = default_tavily_key_manager().tool(
+    tool_instance = tavily_key_manager().tool(
         max_results=2,
         topic="general",
         include_answer=True,

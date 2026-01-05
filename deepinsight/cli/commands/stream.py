@@ -32,7 +32,7 @@ from prompt_toolkit.validation import Validator
 from deepinsight.service.research.research import ResearchService
 from deepinsight.config.config import CONFIG, load_config
 from deepinsight.service.schemas.research import ResearchRequest, SceneType
-from deepinsight.utils.tavily_managed import default_tavily_key_manager
+from deepinsight.utils.tavily_manager import tavily_key_manager
 from deepinsight.utils.trans_md_to_pdf import save_markdown_as_pdf
 from deepinsight.service.schemas.streaming import (
     EventType,
@@ -249,7 +249,7 @@ def extract_content_from_url(url: str) -> Optional[str]:
         return f"（内网解析结果）这是从内网地址 {url} 抓取的内容。"
     else:
         try:
-            extract_tool = default_tavily_key_manager().tool()
+            extract_tool = tavily_key_manager().tool()
             response = extract_tool.extract(urls=[url])
             if isinstance(response, dict) and "results" in response and len(response["results"]) > 0:
                 return response["results"][0].get("raw_content")

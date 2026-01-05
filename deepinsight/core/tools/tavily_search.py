@@ -20,7 +20,7 @@ from deepinsight.core.types.research import (
     Summary,
 )
 from deepinsight.core.utils.utils import get_today_str
-from deepinsight.utils.tavily_managed import default_tavily_key_manager, TavilyBaseKeyManager, SingleKeyManager
+from deepinsight.utils.tavily_manager import tavily_key_manager, TavilyBaseKeyManager, SingleKeyManager
 
 TAVILY_SEARCH_DESCRIPTION = (
     "A search engine optimized for comprehensive, accurate, and trusted results. "
@@ -34,7 +34,7 @@ def get_tavily_manager(config: RunnableConfig) -> TavilyBaseKeyManager:
         api_key = config.get("configurable", {}).get("apiKeys", {}).get("TAVILY_API_KEY")
         return SingleKeyManager(api_key)  # no available key will raise by its `__init__`
     else:
-        return default_tavily_key_manager()
+        return tavily_key_manager()
 
 async def tavily_search_async(
         search_queries,

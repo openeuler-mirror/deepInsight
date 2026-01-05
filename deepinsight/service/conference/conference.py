@@ -61,7 +61,7 @@ from deepinsight.service.schemas.paper_extract import ExtractPaperMetaRequest, E
     DocSegment, PaperMeta
 from deepinsight.core.agent.conf_gen.conf_topic import get_conference_topics
 from deepinsight.utils.file_storage.factory import get_storage_impl
-from deepinsight.utils.tavily_managed import default_tavily_key_manager, TavilyNoEnvError
+from deepinsight.utils.tavily_manager import tavily_key_manager, TavilyNoEnvError
 from deepinsight.utils.trace_utils import tracepoint
 
 
@@ -205,7 +205,7 @@ explores the interaction of computer systems with related areas such as computer
         
         # Check Tavily API key before attempting online search
         try:
-            tavily_mgr = default_tavily_key_manager()
+            tavily_mgr = tavily_key_manager()
         except TavilyNoEnvError:
             raise self.ConferenceQueryException(
                 "Environment variable `TAVILY_API_KEY` and `TAVILY_API_KEYS` not detected. Please configure one of them"

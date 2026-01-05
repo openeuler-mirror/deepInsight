@@ -29,7 +29,7 @@ from deepinsight.core.agent.conf_chat.statistics import graph as statistics_grap
 from deepinsight.core.tools.tavily_search import tavily_search
 from deepinsight.core.tools.wordcloud_tool import generate_wordcloud
 from deepinsight.service.schemas.research import SceneType
-from deepinsight.utils.tavily_managed import default_tavily_key_manager, TavilyNoEnvError, TavilyNoAvailableKeyError
+from deepinsight.utils.tavily_manager import tavily_key_manager, TavilyNoEnvError, TavilyNoAvailableKeyError
 from integrations.mcps.generate_chart import generate_area_chart, generate_bar_chart, generate_column_chart, \
     generate_pie_chart, generate_scatter_chart, generate_line_chart, generate_radar_chart
 
@@ -406,7 +406,7 @@ async def chart_node(state: SupervisorState, config: RunnableConfig) -> Command[
 async def deep_research_team_node(state: SupervisorState, config: RunnableConfig) -> Command[Literal[END]]:
     # 调用 retrival Team 的处理流程
     try:
-        default_tavily_key_manager().get_client()
+        tavily_key_manager().get_client()
     except (TavilyNoEnvError, TavilyNoAvailableKeyError):
         logging.error("no tavily key can be used, please set first.")
         writer = get_stream_writer()

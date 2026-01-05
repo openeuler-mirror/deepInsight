@@ -10,7 +10,7 @@ from langfuse.langchain import CallbackHandler
 from pydantic import BaseModel, Field
 
 from deepinsight.service.conference.paper_extractor import PaperParseException
-from deepinsight.utils.tavily_managed import default_tavily_key_manager
+from deepinsight.utils.tavily_manager import tavily_key_manager
 
 system_prompt = """
 # 🎯 学术会议主题聚合分析与归一化助手
@@ -318,7 +318,7 @@ async def get_conference_topics(conference_info, model: BaseChatModel):
           返回模型提取到的会议主题名称列表。
           如果未找到主题分类则返回空列表。
       """
-    tavily_instance = default_tavily_key_manager().tool(
+    tavily_instance = tavily_key_manager().tool(
         max_results=2,
         topic="general",
         include_answer=True,

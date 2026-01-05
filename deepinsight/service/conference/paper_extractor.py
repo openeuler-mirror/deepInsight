@@ -47,7 +47,7 @@ from deepinsight.service.schemas.paper_extract import (
     PaperMeta,
 )
 from deepinsight.service.conference.ror import RORClient
-from deepinsight.utils.tavily_managed import default_tavily_key_manager
+from deepinsight.utils.tavily_manager import tavily_key_manager
 from deepinsight.utils.trace_utils import tracepoint
 
 
@@ -520,7 +520,7 @@ class PaperExtractionService:
             return llm_meta
 
         try:
-            search_tool = default_tavily_key_manager().tool()
+            search_tool = tavily_key_manager().tool()
             agent = create_agent(
                 model=chat_model,
                 tools=[search_tool],
