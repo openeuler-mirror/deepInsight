@@ -91,6 +91,11 @@ class _TavilyClientGroup:
     client: TavilyClient
     predict: int
 
+    @property
+    def async_client(self) -> AsyncTavilyClient:
+        return AsyncTavilyClient(api_key=self.key.get_secret_value(), proxies=self.__proxy,
+                                 api_base_url=self.__base_url)
+
     def __init__(self, key: str, base_url: str = TAVILY_BASE_URL, proxy: dict = None, predict: int = 0):
         self.key = SecretStr(key)
         proxy = dict(proxy or {})
@@ -99,7 +104,9 @@ class _TavilyClientGroup:
         if not proxy.get("http"):
             proxy["http"] = os.getenv("TAVILY_HTTP_PROXY") or os.getenv("http_proxy") or os.getenv("HTTP_PROXY")
 
-        self.async_client = AsyncTavilyClient(api_key=key, proxies=proxy, api_base_url=base_url)
+        # AsyncTavilyClient is not concurrency-safe
+        self.__proxy = proxy
+        self.__base_url = base_url
         self.client = TavilyClient(api_key=key, proxies=proxy, api_base_url=base_url)
         self.predict = predict
 
