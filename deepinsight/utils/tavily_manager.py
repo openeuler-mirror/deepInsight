@@ -361,6 +361,7 @@ class TavilySearch(_OriginTavily):
                            exclude_domains: list[str] | None = None,
                            search_depth: Literal["basic", "advanced"] | None = None,
                            include_images: bool | None = None,
+                           include_image_descriptions: bool | None = None,
                            time_range: Literal["day", "week", "month", "year"] | None = None,
                            topic: Literal["general", "news", "finance"] | None = None,
                            include_favicon: bool | None = None,
@@ -385,7 +386,9 @@ class TavilySearch(_OriginTavily):
                     timeout=self.timeout,
                     country=self.country,
                     auto_parameters=self.auto_parameters,
-                    include_favicon=include_favicon or self.include_favicon
+                    include_favicon=include_favicon or self.include_favicon,
+                    # kwargs from tool attributes
+                    include_image_descriptions=include_image_descriptions or self.include_image_descriptions
                 )
             except TavilyOutOfPlanLimitError:
                 logging.warning("Search on Tavily failed with an out of usage limit exception. "
@@ -428,7 +431,9 @@ class TavilySearch(_OriginTavily):
                     timeout=self.timeout,
                     country=self.country,
                     auto_parameters=self.auto_parameters,
-                    include_favicon=include_favicon or self.include_favicon
+                    include_favicon=include_favicon or self.include_favicon,
+                    # kwargs from tool attributes
+                    include_image_descriptions=self.include_image_descriptions
                 )
             except TavilyOutOfPlanLimitError:
                 logging.warning("Search on Tavily failed with an out of usage limit exception. "
