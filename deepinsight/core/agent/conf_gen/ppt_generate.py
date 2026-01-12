@@ -667,11 +667,10 @@ async def check_existing_ppt(state: PPTState, config: RunnableConfig):
 async def load_conference_sections(state: PPTState, config: RunnableConfig):
     rc = parse_research_config(config)
     current_thread_work_root = os.path.join(rc.work_root, "conference_report_result", rc.thread_id)
-    sections: Dict[str, str] = {}
+    sections: Dict[str, str | list[str]] = {}
     for fname in [
         ConferenceFileNames.OVERVIEW_MD,
         ConferenceFileNames.SUBMISSION_MD,
-        ConferenceFileNames.KEYNOTES_MD,
         ConferenceFileNames.TOPIC_MD,
         ConferenceFileNames.SUMMARY_MD,
     ]:
@@ -682,23 +681,27 @@ async def load_conference_sections(state: PPTState, config: RunnableConfig):
         else:
             sections[fname] = ""
 
-    bp_folder = os.path.join(current_thread_work_root, ConferenceFolderNames.BEST_PAPERS)
-    best_papers_texts = []
-    if os.path.isdir(bp_folder):
-        for fn in os.listdir(bp_folder):
-            if fn.endswith(".md"):
-                with open(os.path.join(bp_folder, fn), "r", encoding="utf-8") as f:
-                    best_papers_texts.append(f.read())
-    sections[ConferenceFolderNames.BEST_PAPERS] = best_papers_texts
-    statistic_folder = os.path.join(current_thread_work_root, ConferenceFolderNames.VALUE_MINING)
-    if os.path.isdir(statistic_folder):
-        for fn in os.listdir(statistic_folder):
-            if fn.endswith(".md"):
-                with open(os.path.join(statistic_folder, fn), "r", encoding="utf-8") as f:
-                    sections[fn] = f.read()
+    sections[ConferenceFolderNames.BEST_PAPERS] = list(
+        _load_md_from_folder(current_thread_work_root, ConferenceFolderNames.BEST_PAPERS).values()
+    )
+    sections[ConferenceFolderNames.KEYNOTES] = list(
+        _load_md_from_folder(current_thread_work_root, ConferenceFolderNames.KEYNOTES).values()
+    )
+    sections.update(_load_md_from_folder(current_thread_work_root, ConferenceFolderNames.VALUE_MINING))
     return dict(
         sections=sections
     )
+
+
+def _load_md_from_folder(current_thread_work_root: str, folder_name: str) -> dict[str, str]:
+    folder_path = os.path.join(current_thread_work_root, folder_name)
+    section_texts = {}
+    if os.path.isdir(folder_path):
+        for filename in os.listdir(folder_path):
+            if filename.endswith(".md"):
+                with open(os.path.join(folder_path, filename), "r", encoding="utf-8") as f:
+                    section_texts[filename] = f.read()
+    return section_texts
 
 
 def generate_json_template(model_cls: type) -> str:
@@ -901,10 +904,14 @@ async def generate_overview_page(state: PPTState, config: RunnableConfig):
 
 
 async def generate_keynotes_page(state: PPTState, config: RunnableConfig):
-    md_content = state["sections"].get(ConferenceFileNames.KEYNOTES_MD, "")
-    if not md_content:
-        logging.warning(f"Keynote page is empty")
-        return
+    keynotes = state["sections"].get(ConferenceFolderNames.KEYNOTES) or []
+    if not keynotes:
+        logging.warning(f"Keynote page is empty: No keynotes in origin report.")
+        return {}
+    origin_len = len(keynotes)
+    keynotes = [k for k in keynotes if k]
+    if len(keynotes) < origin_len:
+        logging.warning(f"{origin_len - len(keynotes)} keynotes page are empty: No content in origin report.")
     rc = parse_research_config(config)
     prompt = rc.prompt_manager.get_prompt("keynote", rc.prompt_group).format(
         response_format=generate_json_template(KeynotePageContentList),
@@ -916,20 +923,31 @@ async def generate_keynotes_page(state: PPTState, config: RunnableConfig):
         tools=[download_file_from_url],
         response_format=ToolStrategy(KeynotePageContentList)
     )
-    response = await agent.with_retry().ainvoke(
-        input=dict(
-            messages=[HumanMessage(content=state["sections"].get(ConferenceFileNames.KEYNOTES_MD, ""))]
-        )
+    raw_responses: list[dict] = await asyncio.gather(
+        *[
+            agent.with_retry().ainvoke(input=dict(messages=[HumanMessage(content=keynote)]))
+            for keynote in keynotes
+        ]
     )
-    structured_response: Optional[KeynotePageContentList] = response.get("structured_response")
-    if not structured_response or not structured_response.items:
-        logging.warning(f"LLM generate keynote response item is empty")
-        return
+    keynote_json_list: list[KeynotePageContent] = []
+    empty_count = 0
+    for raw_response in raw_responses:
+        structured_response: Optional[KeynotePageContentList] = raw_response.get("structured_response")
+        if not structured_response or not structured_response.items:
+            empty_count += 1
+            continue
+        keynote_json_list.extend(structured_response.items)
+
+    if not keynote_json_list:
+        logging.warning(f"All LLM generate keynote section responses are empty")
+        return {}
+    if empty_count:
+        logging.warning(f"LLM generate keynote failed with an empty result for {empty_count} keynote sesctions.")
     return dict(
         keynote_json=[
             KeynotePage(
                 content=each
-            ) for each in structured_response.items
+            ) for each in keynote_json_list
         ]
     )
 
