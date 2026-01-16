@@ -19,6 +19,7 @@ class ConferencePromptGroup:
     KEYNOTES = "conf_gen_keynotes"
     TOPIC = "conf_gen_topic"
     BEST_PAPERS = "conf_gen_best_papers"
+    CROSS_TOPIC = "conf_gen_cross_topic"
 
 
 class ConferenceFileNames:
@@ -29,6 +30,8 @@ class ConferenceFileNames:
     TOPIC_MD = "conference_topic.md"
     SUMMARY_MD = "conference_summary.md"
     BEST_PAPERS_MD = "conference_best_papers.md"
+    CROSS_TOPIC_STATISTICS_MD = "cross_topic_statistics.md"
+    CROSS_TOPIC_SUMMARY_MD = "cross_topic_summary.md"
 
 
 class ConferenceFolderNames:
@@ -36,6 +39,7 @@ class ConferenceFolderNames:
     BEST_PAPERS = "conference_best_papers"
     VALUE_MINING = "conference_value_mining"
     KEYNOTES = "conference_keynotes"
+    CROSS_TOPIC_PAPERS = "cross_topic_papers"
 
 
 def is_best_papers_group(prompt_group: str) -> bool:

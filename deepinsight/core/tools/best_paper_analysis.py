@@ -108,6 +108,7 @@ async def analyze_single_paper(paper_info: str, output_dir: str, config: Runnabl
         logging.error(f"论文解析失败: {paper_info}, 错误: {e}")
         import traceback
         traceback.print_exc()  # 打印堆栈信息
+        return False  # 明确返回 False 表示失败
 
 
 # ----------------- 批量论文解析工具 -----------------

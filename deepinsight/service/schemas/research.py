@@ -22,6 +22,7 @@ class SceneType(str, Enum):
     DEEP_RESEARCH = "deep_research"
     CONFERENCE_RESEARCH = "conference_research"
     CONFERENCE_QA = "conference_qa"
+    CROSS_TOPIC_RESEARCH = "cross_topic_research"
 
 
 class RetrievalArgs(BaseModel):
@@ -106,7 +107,7 @@ class ResearchRequest(BaseModel):
                     converted_types.append(api_type)
         
         # For conference scenarios, always include PAPER_STATIC_DATA
-        if self.scene_type in [SceneType.CONFERENCE_RESEARCH, SceneType.CONFERENCE_QA]:
+        if self.scene_type in [SceneType.CONFERENCE_RESEARCH, SceneType.CONFERENCE_QA, SceneType.CROSS_TOPIC_RESEARCH]:
             if SearchAPI.PAPER_STATIC_DATA not in converted_types:
                 converted_types.append(SearchAPI.PAPER_STATIC_DATA)
         

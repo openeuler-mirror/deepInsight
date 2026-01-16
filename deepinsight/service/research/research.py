@@ -34,6 +34,7 @@ from deepinsight.utils.llm_utils import init_langchain_models_from_llm_config
 from deepinsight.utils.common import safe_get
 from deepinsight.core.agent.conf_chat.supervisor import graph as conference_qa_graph
 from deepinsight.core.agent.conf_gen.supervisor import graph as conference_research_graph
+from deepinsight.core.agent.conf_gen.cross_topic_supervisor import graph as cross_topic_graph
 from deepinsight.core.agent.resch_gen.supervisor import graph as deep_research_graph
 from deepinsight.core.agent.resch_gen.parallel_supervisor import graph as parallel_deep_research_graph
 from deepinsight.core.agent.conf_gen.ppt_generate import graph as ppt_generate_graph
@@ -90,6 +91,9 @@ class ResearchService:
             prompt_group = "conf_gen_supervisor"
         elif req.scene_type == SceneType.CONFERENCE_QA:
             prompt_group = "conf_chat"
+        elif req.scene_type == SceneType.CROSS_TOPIC_RESEARCH:
+            # 跨会议主题分析使用 conf_gen_cross_topic 提示词组
+            prompt_group = "conf_gen_cross_topic"
         else:
             raise ValueError(f"Unknown scene type: {req.scene_type}")
 
@@ -102,8 +106,8 @@ class ResearchService:
             deep_cfg, lambda o: safe_get(o.stream_blocklist, lambda s: s.tool_call, None), None
         ) or {}
 
-        # Extend blocklist for specific scene types (conference_qa and conference_research)
-        if req.scene_type in [SceneType.CONFERENCE_QA, SceneType.CONFERENCE_RESEARCH]:
+        # Extend blocklist for specific scene types (conference_qa / conference_research / cross_topic_research)
+        if req.scene_type in [SceneType.CONFERENCE_QA, SceneType.CONFERENCE_RESEARCH, SceneType.CROSS_TOPIC_RESEARCH]:
             # Additional filters for conference scenes (only new ones not in config.yaml)
             conference_additional_filters = {
                 "researcher_tools": True,
@@ -222,6 +226,8 @@ class ResearchService:
             return conference_qa_graph
         elif scene_type == SceneType.CONFERENCE_RESEARCH:
             return conference_research_graph
+        elif scene_type == SceneType.CROSS_TOPIC_RESEARCH:
+            return cross_topic_graph
         elif scene_type == SceneType.DEEP_RESEARCH:
             if request.parallel_expert_review_enable and request.review_experts:
                 return parallel_deep_research_graph
@@ -338,74 +344,133 @@ class ResearchService:
             buffer.seek(0)
             return buffer, file_name
 
-        ordered_files = [
-            ConferenceFileNames.OVERVIEW_MD,
-            ConferenceFileNames.KEYNOTES_MD,
-            ConferenceFileNames.TOPIC_MD,
-        ]
-        value_mining_dir = os.path.join(base_dir, ConferenceFolderNames.VALUE_MINING)
-        value_mining_files = [
-            "tech_topics.md",
-            "national_tech_profile.md",
-            "institution_overview.md",
-            "inter_institution_collab.md",
-            "research_hotspots.md",
-            "high_potential_tech_transfer.md",
-        ]
-        summary_file = ConferenceFileNames.SUMMARY_MD
-        best_papers_dir = os.path.join(base_dir, ConferenceFolderNames.BEST_PAPERS)
+        # 判断是否是跨会议主题分析
+        cross_topic_statistics_path = os.path.join(base_dir, ConferenceFileNames.CROSS_TOPIC_STATISTICS_MD)
+        cross_topic_summary_path = os.path.join(base_dir, ConferenceFileNames.CROSS_TOPIC_SUMMARY_MD)
+        is_cross_topic = os.path.exists(cross_topic_statistics_path) or os.path.exists(cross_topic_summary_path)
 
         markdown_parts = []
+        report_name = "未知报告"
 
-        for file_name in ordered_files:
-            file_path = os.path.join(base_dir, file_name)
-            if os.path.exists(file_path):
-                with open(file_path, "r", encoding="utf-8") as f:
+        if is_cross_topic:
+            # 跨会议主题分析的PDF生成逻辑
+            # 1. 统计信息
+            if os.path.exists(cross_topic_statistics_path):
+                with open(cross_topic_statistics_path, "r", encoding="utf-8") as f:
                     markdown_parts.append(f.read())
 
-        if os.path.exists(value_mining_dir):
-            for vm_file in value_mining_files:
-                vm_path = os.path.join(value_mining_dir, vm_file)
-                if os.path.exists(vm_path):
-                    with open(vm_path, "r", encoding="utf-8") as f:
+            # 2. 多篇论文分析（按文件名排序）
+            cross_topic_papers_dir = os.path.join(base_dir, ConferenceFolderNames.CROSS_TOPIC_PAPERS)
+            if os.path.exists(cross_topic_papers_dir):
+                paper_files = sorted([f for f in os.listdir(cross_topic_papers_dir) if f.endswith(".md")])
+                for paper_file in paper_files:
+                    paper_path = os.path.join(cross_topic_papers_dir, paper_file)
+                    with open(paper_path, "r", encoding="utf-8") as f:
                         markdown_parts.append(f.read())
-                    
-        if os.path.exists(best_papers_dir):
-            best_papers = sorted(
-                [f for f in os.listdir(best_papers_dir) if f.endswith(".md")]
-            )
-            for bp in best_papers:
-                bp_path = os.path.join(best_papers_dir, bp)
-                with open(bp_path, "r", encoding="utf-8") as f:
+
+            # 3. 总结
+            if os.path.exists(cross_topic_summary_path):
+                with open(cross_topic_summary_path, "r", encoding="utf-8") as f:
                     markdown_parts.append(f.read())
 
-        summary_path = os.path.join(base_dir, summary_file)
-        if os.path.exists(summary_path):
-            with open(summary_path, "r", encoding="utf-8") as f:
-                markdown_parts.append(f.read())
+            # 4. 论文列表
+            papers_list_path = os.path.join(base_dir, "papers_list.md")
+            if os.path.exists(papers_list_path):
+                with open(papers_list_path, "r", encoding="utf-8") as f:
+                    markdown_parts.append(f.read())
+
+            # 提取报告名称（从统计信息或总结文件中提取主题和会议名称）
+            extract_text = ""
+            if os.path.exists(cross_topic_statistics_path):
+                with open(cross_topic_statistics_path, "r", encoding="utf-8") as f:
+                    extract_text = f.read()
+            elif os.path.exists(cross_topic_summary_path):
+                with open(cross_topic_summary_path, "r", encoding="utf-8") as f:
+                    extract_text = f.read()
+
+            if extract_text:
+                prompt = (
+                    "请从以下文本中提取研究主题和涉及的会议名称，格式为'主题_会议1_会议2'。"
+                    "例如：如果主题是'分布式系统'，涉及'HOTOS 2025'和'OSDI 2025'，则返回'分布式系统_HOTOS-2025_OSDI-2025'。"
+                    "仅返回提取的内容，不要包含其他文字。\n\n"
+                    f"文本内容：\n{extract_text[:2000]}"  # 限制长度避免token过多
+                )
+                try:
+                    response = await default_model.with_retry().ainvoke([HumanMessage(content=prompt)])
+                    report_name = response.content.strip().replace("\n", "").replace("：", "_")
+                except Exception as e:
+                    logging.warning(f"LLM parse cross-topic report name error: {e}")
+                    # 如果LLM解析失败，使用默认名称
+                    report_name = "跨会议主题分析报告"
+
+        else:
+            # 原有的普通顶会分析逻辑
+            ordered_files = [
+                ConferenceFileNames.OVERVIEW_MD,
+                ConferenceFileNames.KEYNOTES_MD,
+                ConferenceFileNames.TOPIC_MD,
+            ]
+            value_mining_dir = os.path.join(base_dir, ConferenceFolderNames.VALUE_MINING)
+            value_mining_files = [
+                "tech_topics.md",
+                "national_tech_profile.md",
+                "institution_overview.md",
+                "inter_institution_collab.md",
+                "research_hotspots.md",
+                "high_potential_tech_transfer.md",
+            ]
+            summary_file = ConferenceFileNames.SUMMARY_MD
+            best_papers_dir = os.path.join(base_dir, ConferenceFolderNames.BEST_PAPERS)
+
+            for file_name in ordered_files:
+                file_path = os.path.join(base_dir, file_name)
+                if os.path.exists(file_path):
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        markdown_parts.append(f.read())
+
+            if os.path.exists(value_mining_dir):
+                for vm_file in value_mining_files:
+                    vm_path = os.path.join(value_mining_dir, vm_file)
+                    if os.path.exists(vm_path):
+                        with open(vm_path, "r", encoding="utf-8") as f:
+                            markdown_parts.append(f.read())
+                        
+            if os.path.exists(best_papers_dir):
+                best_papers = sorted(
+                    [f for f in os.listdir(best_papers_dir) if f.endswith(".md")]
+                )
+                for bp in best_papers:
+                    bp_path = os.path.join(best_papers_dir, bp)
+                    with open(bp_path, "r", encoding="utf-8") as f:
+                        markdown_parts.append(f.read())
+
+            summary_path = os.path.join(base_dir, summary_file)
+            if os.path.exists(summary_path):
+                with open(summary_path, "r", encoding="utf-8") as f:
+                    markdown_parts.append(f.read())
+
+            # 提取会议名称
+            overview_path = os.path.join(base_dir, ConferenceFileNames.OVERVIEW_MD)
+            if os.path.exists(overview_path):
+                with open(overview_path, "r", encoding="utf-8") as f:
+                    overview_text = f.read()
+
+                prompt = (
+                    "请从以下文本中提取会议名称和年份，例如'SOSP 2025'或'NeurIPS 2024'。"
+                    "仅返回会议名与年份，不要包含其他文字。\n\n"
+                    f"文本内容：\n{overview_text}"
+                )
+                try:
+                    response = await default_model.with_retry().ainvoke([HumanMessage(content=prompt)])
+                    report_name = response.content
+                    report_name = report_name.strip().replace("\n", "").replace("：", ":")
+                except Exception as e:
+                    logging.warning(f"LLM parse conference name error: {e}")
 
         if not markdown_parts:
             raise FileNotFoundError(f"No markdown files found for conversation_id={conversation_id}")
 
         merged_markdown = "\n\n---\n\n".join(markdown_parts)
-
-        overview_path = os.path.join(base_dir, ConferenceFileNames.OVERVIEW_MD)
-        report_name = "未知会议"
-        if os.path.exists(overview_path):
-            with open(overview_path, "r", encoding="utf-8") as f:
-                overview_text = f.read()
-
-            prompt = (
-                "请从以下文本中提取会议名称和年份，例如“SOSP 2025”或“NeurIPS 2024”。"
-                "仅返回会议名与年份，不要包含其他文字。\n\n"
-                f"文本内容：\n{overview_text}"
-            )
-            try:
-                response = await default_model.with_retry().ainvoke([HumanMessage(content=prompt)])
-                report_name = response.content
-                report_name = report_name.strip().replace("\n", "").replace("：", ":")
-            except Exception as e:
-                logging.warning(f"LLM parse conference name error: {e}")
 
         now = datetime.now()
         time_str = now.strftime("%Y年%m月%d日 %H时%M分%S秒")
@@ -419,7 +484,11 @@ class ResearchService:
 
         final_markdown = header_info + merged_markdown
 
-        file_name = f"{report_name} 洞察报告-{time_for_filename}.pdf"
+        # 根据报告类型生成不同的文件名
+        if is_cross_topic:
+            file_name = f"{report_name}_跨会议主题分析报告-{time_for_filename}.pdf"
+        else:
+            file_name = f"{report_name} 洞察报告-{time_for_filename}.pdf"
         buffer = io.BytesIO()
         output_pdf_path = os.path.join(base_dir, file_name)
         await asyncio.to_thread(

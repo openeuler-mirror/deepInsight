@@ -272,7 +272,7 @@ class MemoryMCPFilesystem:
 def register_fs_tools(fs: MemoryMCPFilesystem):
     """Register fs methods as LangChain tools with correct instance binding."""
 
-    @tool("write_file", return_direct=True)
+    @tool("write_file", return_direct=False)
     def write_file_tool(file_path: str, content: str) -> str:
         """
         Write content to a file in the OS filesystem.
@@ -290,12 +290,12 @@ def register_fs_tools(fs: MemoryMCPFilesystem):
         # Ensure the directory exists, creating it if necessary
         return fs.write_file(file_path, content)
 
-    @tool("read_file", return_direct=True)
+    @tool("read_file", return_direct=False)
     def read_file_tool(file_path: str) -> str:
         """Read the contents of a file."""
         return fs.read_file(file_path)
 
-    @tool("list_directory", return_direct=True)
+    @tool("list_directory", return_direct=False)
     def list_directory_tool(path: str) -> str:
         """
         List files and directories under a given path, returning a tree-like structure.
