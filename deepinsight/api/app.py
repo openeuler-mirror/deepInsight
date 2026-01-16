@@ -169,7 +169,7 @@ async def get_conference_meta(
     conf_name = split[0]
     year = int(split[1])
     try:
-        id_, fullname = await conference_service.get_or_create_conference(conf_name, year)
+        id_, fullname = await conference_service.get_or_create_conference.with_trace(conf_name, year)
         return dict(id=id_, fullname=fullname)
     except conference_service.ConferenceQueryException as e:
         return dict(error=str(e))
@@ -194,7 +194,7 @@ async def parse_paper_binary(
     _ = from_page, to_page
     binary = base64.b64decode(binary)
     try:
-        doc, meta = await conference_service.ingest_single_paper(
+        doc, meta = await conference_service.ingest_single_paper.with_trace(
             conference_id=conference_id, kb_id_external=external_kb_id, filename=filename,
             binary=binary, resource_prefix=img_base_url)
         return dict(

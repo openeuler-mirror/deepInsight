@@ -61,6 +61,8 @@ from deepinsight.service.schemas.paper_extract import ExtractPaperMetaRequest, E
     DocSegment, PaperMeta
 from deepinsight.core.agent.conf_gen.conf_topic import get_conference_topics
 from deepinsight.utils.file_storage.factory import get_storage_impl
+from deepinsight.utils.trace_utils import tracepoint
+
 
 class ConferenceService:
     """
@@ -195,6 +197,7 @@ explores the interaction of computer systems with related areas such as computer
 }
 """
 
+    @tracepoint(invisible_args="self")
     async def _query_conference_meta(self, short_name: str, year: int):
         # Initialize LLM
         _, llm = init_langchain_models_from_llm_config(self._config.llms)
@@ -374,6 +377,7 @@ explores the interaction of computer systems with related areas such as computer
         await self._incremental_ingest_for_conference(kb, conf_id, req, reporter)
         return conf_id, kb.kb_id
 
+    @tracepoint(invisible_args="self")
     async def get_or_create_conference(self, conf_name: str, year: int) -> tuple[int, str]:
         with self._db.get_session() as db:  # type: Session
             existing = db.execute(
@@ -411,6 +415,10 @@ explores the interaction of computer systems with related areas such as computer
                 return existing[0], existing[1] or conf_name  # id, full_name
         raise self.ConferenceQueryException("Try creating new conference with too many conflicts.")
 
+    @tracepoint(
+        invisible_args="self",
+        binary=lambda binary: f"bytes (len={len(binary)})" if binary else binary
+    )
     async def ingest_single_paper(self, conference_id: int, kb_id_external: str,
                                   filename: str, binary: bytes,
                                   resource_prefix: str = None) -> tuple[ParseResult, PaperMeta]:
