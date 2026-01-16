@@ -87,6 +87,8 @@ prompt_management:
       label: "latest"
     conf_gen_best_papers:
       label: "latest"
+    conf_gen_cross_topic:
+      label: "latest"
     conf_gen_ppt_generate:
       label: "latest"
     expert_review:

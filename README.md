@@ -40,6 +40,10 @@ alembic upgrade head
   - 删除：`di conf remove --id 12`
   - 顶会洞察：`di conf gen --name "ICLR 2025" --files-src ./path/to/files`
   - 会议问答：`di conf chat --name "ICLR 2025" --files-src ./path/to/files --question "今年最佳论文有哪些创新点？"`
+  - 跨会议主题分析：`di conf topic --question "分布式系统一致性" --name "HOTOS 2025, OSDI 2025" --file-src "./path1,./path2"`
+    - 支持多个会议（用逗号分隔），分析跨会议的主题研究
+    - 生成统计信息、论文分析、总结等 Markdown 文件，并自动生成 PDF 报告
+    - 输出目录：`data/conference_report_result/cross_topic-<会议名称>/`
   - 快速测试（使用示例数据）：`di conf gen --name "HOTOS 2025" --files-src ./example/papers/hotos-2025/`
   
 - 深度研究助手（resch）

@@ -22,6 +22,10 @@ from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.core.types.research import FinalResult
 from deepinsight.core.types.graph_config import RetrievalType
 from deepinsight.core.agent.conf_gen.supervisor import graph as conference_research_graph
+from deepinsight.core.agent.conf_gen.cross_topic_supervisor import (
+    graph as cross_topic_graph,
+    construct_sub_config as construct_cross_topic_sub_config,
+)
 from deepinsight.core.agent.conf_chat.statistics import graph as statistics_graph
 from deepinsight.core.tools.tavily_search import tavily_search
 from deepinsight.core.tools.wordcloud_tool import generate_wordcloud
@@ -39,6 +43,7 @@ class GraphNodeType(str, Enum):
     RETRIVAL_TEAM = "retrival_team"  # 检索团队节点
     DEEP_RESEARCH_TEAM = "deep_research_team"  # 深度研究团队节点
     CHART_NODE = "chart_node"  # 报告（图表）团队节点
+    CROSS_TOPIC_TEAM = "cross_topic_team"  # 跨会议主题分析团队节点
 
 
 # 定义状态格式
@@ -99,16 +104,42 @@ def make_supervisor_node():
         return None
 
     async def supervisor_node(state: SupervisorState, config) -> Command[Literal[
-        GraphNodeType.CLARIFY_NODE, GraphNodeType.PAPER_TEAM, GraphNodeType.CHART_NODE,
-        GraphNodeType.ANSWER_COMPOSER]]:
+        GraphNodeType.CLARIFY_NODE,
+        GraphNodeType.PAPER_TEAM,
+        GraphNodeType.CHART_NODE,
+        GraphNodeType.RETRIVAL_TEAM,
+        GraphNodeType.DEEP_RESEARCH_TEAM,
+        GraphNodeType.CROSS_TOPIC_TEAM,
+        GraphNodeType.ANSWER_COMPOSER,
+    ]]:
         rc = parse_research_config(config)
+        
+        # 检查是否有多个知识库（对应多个会议）
+        kb_count = 0
+        conference_hint = ""
+        if rc.retrieval_config:
+            for retrieval_type, retrieval_config in rc.retrieval_config.items():
+                if hasattr(retrieval_config, 'args') and hasattr(retrieval_config.args, 'kb_ids'):
+                    kb_ids = retrieval_config.args.kb_ids or []
+                    kb_count = len(kb_ids)
+                    if kb_count > 1:
+                        # 如果有多个知识库，提示 supervisor 考虑跨会议场景
+                        conference_hint = (
+                            f"\n\n【重要提示】当前请求涉及 {kb_count} 个会议的知识库。"
+                            f"如果用户问题是关于技术主题的分析、对比或研究，"
+                            f"应该考虑使用 cross_topic_team 进行跨会议主题分析。"
+                        )
+                        logging.info(f"检测到 {kb_count} 个知识库，提示 supervisor 考虑跨会议场景")
+                        break
+        
         # 1. 定义新成员和描述
         members = [
             GraphNodeType.CLARIFY_NODE.value,
             GraphNodeType.PAPER_TEAM.value,
             GraphNodeType.CHART_NODE.value,
             GraphNodeType.RETRIVAL_TEAM.value,
-            GraphNodeType.DEEP_RESEARCH_TEAM.value
+            GraphNodeType.DEEP_RESEARCH_TEAM.value,
+            GraphNodeType.CROSS_TOPIC_TEAM.value,
         ]
 
         members_description = {
@@ -132,6 +163,10 @@ def make_supervisor_node():
                 name="deep_research_team_prompt",
                 group=rc.prompt_group,
             ).format(),
+            GraphNodeType.CROSS_TOPIC_TEAM: rc.prompt_manager.get_prompt(
+                name="cross_topic_team_prompt",
+                group=rc.prompt_group,
+            ).format(),
         }
 
         members_str = "\n".join([f"- {m}" for m in members])
@@ -149,6 +184,10 @@ def make_supervisor_node():
             members_description=members_desc_str,
             member_list=member_list_string
         )
+        
+        # 如果有多个会议，在 prompt 末尾添加提示
+        if conference_hint:
+            conf_analysis_supervisor_prompt += conference_hint
 
         messages = [
                        {"role": "system", "content": conf_analysis_supervisor_prompt},
@@ -157,6 +196,7 @@ def make_supervisor_node():
         response = await llm.ainvoke(messages)
         llm_response = response.content
         result = parse_response(llm_response)
+
         if not result or result["next"] == END or result["next"] == GraphNodeType.CLARIFY_NODE.value:
             return Command(
                 goto=GraphNodeType.ANSWER_COMPOSER.value,
@@ -399,6 +439,133 @@ async def deep_research_team_node(state: SupervisorState, config: RunnableConfig
     })
 
 
+@progress_stage("跨会议主题分析")
+async def cross_topic_team_node(state: SupervisorState, config: RunnableConfig) -> Command[Literal[END]]:
+    """
+    跨会议主题分析团队节点
+
+    - 仍然在 CONFERENCE_QA 场景下工作，由 supervisor_prompt 决定是否派单到本节点
+    - kb_ids 从 config.retrieval_config 中获取，与 deep_research_team_node 保持一致
+    - 使用 conf_gen_cross_topic 的 prompt_group 和 cross_topic_supervisor 图完成跨会议分析，
+      生成统计信息、论文分析和总结等 MD 文件。
+    """
+    rc = parse_research_config(config)
+    question = state["messages"][-1].content
+
+    writer = get_stream_writer()
+
+    # 构建子图配置：切换到跨会议场景的 prompt_group 等配置
+    # 复用 cross_topic_supervisor 中的 construct_sub_config 逻辑
+    # 注意：retrieval_config 会从父 config 中继承，不需要显式传递
+    sub_config = await construct_cross_topic_sub_config(config, prompt_group="conf_gen_cross_topic")
+
+    # 初始化状态（与 deep_research_team_node 保持一致，不传递 kb_ids）
+    initial_state = {
+        "messages": [("user", question)],
+        "question": question,
+    }
+
+    try:
+        result = await cross_topic_graph.with_config(
+            configurable=sub_config
+        ).ainvoke(initial_state)
+
+        # 从 result 中获取完整报告内容（类似 deep_research_team_node）
+        # 优先从 messages 中获取，如果没有则从 final_report 获取
+        if result.get("messages") and len(result["messages"]) > 0:
+            full_report = result["messages"][-1].content
+        else:
+            # 如果没有 messages，尝试从输出目录读取完整报告
+            output_path = result.get("output_path", "")
+            full_report = None
+            if output_path:
+                # 尝试读取生成的 PDF 对应的 Markdown 文件
+                # 或者从各个组件文件组装
+                try:
+                    import os
+                    from deepinsight.core.types.conference_constants import (
+                        ConferenceFileNames,
+                        ConferenceFolderNames,
+                    )
+                    
+                    statistics_path = os.path.join(output_path, ConferenceFileNames.CROSS_TOPIC_STATISTICS_MD)
+                    summary_path = os.path.join(output_path, ConferenceFileNames.CROSS_TOPIC_SUMMARY_MD)
+                    papers_dir = os.path.join(output_path, ConferenceFolderNames.CROSS_TOPIC_PAPERS)
+                    papers_list_path = os.path.join(output_path, "papers_list.md")
+                    
+                    parts = []
+                    if os.path.exists(statistics_path):
+                        with open(statistics_path, 'r', encoding='utf-8') as f:
+                            parts.append(f"# 统计信息\n\n{f.read()}")
+                    
+                    if os.path.exists(papers_dir):
+                        paper_files = sorted([f for f in os.listdir(papers_dir) if f.endswith(".md")])
+                        if paper_files:
+                            parts.append("\n\n# 论文分析\n\n")
+                            for paper_file in paper_files:
+                                paper_path = os.path.join(papers_dir, paper_file)
+                                with open(paper_path, 'r', encoding='utf-8') as f:
+                                    parts.append(f.read())
+                                    parts.append("\n\n---\n\n")
+                    
+                    if os.path.exists(summary_path):
+                        with open(summary_path, 'r', encoding='utf-8') as f:
+                            parts.append(f"# 总结\n\n{f.read()}")
+                    
+                    if os.path.exists(papers_list_path):
+                        with open(papers_list_path, 'r', encoding='utf-8') as f:
+                            parts.append(f"\n\n# 论文列表\n\n{f.read()}")
+                    
+                    if parts:
+                        from datetime import datetime
+                        now = datetime.now()
+                        time_str = now.strftime("%Y年%m月%d日 %H时%M分%S秒")
+                        header = (
+                            f"# 跨会议主题分析报告\n\n"
+                            f"**研究主题**：{question}\n\n"
+                            f"**生成时间**：{time_str}\n\n"
+                            f"---\n\n"
+                        )
+                        full_report = header + "\n\n".join(parts)
+                except Exception as e:
+                    logging.warning(f"读取完整报告失败: {e}")
+            
+            if not full_report:
+                # 如果无法获取完整报告，使用简单消息
+                output_path = result.get("output_path", "")
+                full_report = (
+                    "跨会议主题分析已完成。\n\n"
+                    f"- 输出目录：{output_path}\n"
+                    "- 包含内容：统计信息（cross_topic_statistics.md）、"
+                    "论文分析（cross_topic_papers/*.md）、总结（cross_topic_summary.md）以及论文列表（papers_list.md）。"
+                )
+        
+        writer(FinalResult(final_report=full_report))
+
+        return Command(
+            goto=END,
+            update={
+                "messages": HumanMessage(
+                    content=full_report,
+                    name="cross_topic_team",
+                )
+            },
+        )
+    except Exception as e:
+        logging.exception("跨会议主题分析失败")
+        error_msg = f"跨会议主题分析失败：{e}"
+        writer(FinalResult(final_report=error_msg))
+        return Command(
+            goto=END,
+            update={
+                "messages": HumanMessage(
+                    content=error_msg,
+                    name="cross_topic_team",
+                )
+            },
+        )
+
+
 # 构建图
 builder = StateGraph(SupervisorState)
 builder.add_node(GraphNodeType.SUMMARIZER.value, summarization_node)
@@ -408,6 +575,7 @@ builder.add_node(GraphNodeType.PAPER_TEAM.value, paper_team_node)
 builder.add_node(GraphNodeType.CHART_NODE.value, chart_node)
 builder.add_node(GraphNodeType.RETRIVAL_TEAM.value, retrival_team_node)
 builder.add_node(GraphNodeType.DEEP_RESEARCH_TEAM.value, deep_research_team_node)
+builder.add_node(GraphNodeType.CROSS_TOPIC_TEAM.value, cross_topic_team_node)
 builder.add_node(GraphNodeType.ANSWER_COMPOSER.value, answer_composer_node)
 
 
