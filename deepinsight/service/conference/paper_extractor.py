@@ -10,7 +10,6 @@ import logging
 import traceback
 from typing import List, Optional, Set, Tuple, Annotated, Dict, NamedTuple
 from langchain_core.messages import HumanMessage
-from langfuse.langchain import CallbackHandler
 from pydantic import RootModel, Field, ValidationError
 from os.path import abspath, dirname, join as join_path
 import yaml
@@ -49,6 +48,7 @@ from deepinsight.service.schemas.paper_extract import (
     PaperMeta,
 )
 from deepinsight.service.conference.ror import RORClient
+from deepinsight.utils.trace_utils import tracepoint
 
 
 class PaperParseException(RuntimeError):
@@ -97,6 +97,7 @@ class PaperExtractionService:
             )
         return sorted(ret, key=lambda item: item.index)
 
+    @tracepoint(invisible_args="self")
     async def extract_and_store(self, req: ExtractPaperMetaRequest) -> ExtractPaperMetaResponse:
         """Extract paper metadata from Markdown and persist.
         Returns `ExtractPaperMetaResponse` with resulting paper and author IDs.
@@ -163,6 +164,7 @@ class PaperExtractionService:
         )
 
     # --------------------- Conference helpers ---------------------
+    @tracepoint(invisible_args="self")
     async def _get_conference_and_affiliations(self, req: ExtractPaperMetaRequest) -> Tuple[int, int, List[str], Set[str]]:
         """Get conference ID/year/topics and existing affiliations.
         Returns: (conference_id, year, topics, existing_affiliations)
@@ -202,6 +204,7 @@ class PaperExtractionService:
         return set(out)
 
     # --------------------- Author & Paper persistence ---------------------
+    @tracepoint(invisible_args="self")
     def _store_paper_meta(self, paper_meta: PaperMeta, conference_id: int, year: int) -> Tuple[int, List[int]]:
         """Create paper and author relations, or update existing paper authors if needed.
         Returns the `paper_id` and ordered `author_ids`.
@@ -439,6 +442,7 @@ class PaperExtractionService:
         )
         return splitter.split_text(markdown_content)
 
+    @tracepoint(invisible_args=["self", "chat_model"])
     async def _extract_paper_metadata(
         self,
         split_content: List[str],
@@ -502,6 +506,7 @@ class PaperExtractionService:
     class _AffiliationMap(RootModel):
         root: dict[Annotated[str, Field(min_length=1)], Annotated[str, Field(min_length=1)]]
 
+    @tracepoint(invisible_args=["self", "chat_model"])
     async def _correct_affiliation_names(
         self,
         llm_meta: PaperMeta,
@@ -526,7 +531,6 @@ class PaperExtractionService:
                 input=dict(
                     messages=[HumanMessage(content=f"Fix these names into their full legal English name of the organization registered\n:{names}")],
                 ),
-                config={"callbacks": [CallbackHandler()]},
             )
 
             # 从 agent 返回的 messages 中拿到最后一条 AI 回复内容，再从中解析 JSON
@@ -586,7 +590,7 @@ class PaperExtractionService:
         logging.info(f"Affiliation mapping of this paper:\n{log_str}")
         return {origin: fixed_by_ror[llm_fixed] for origin, llm_fixed in mapping.items()}
 
-
+    @tracepoint(invisible_args=["self", "chat_model"])
     async def _unify_country_name(self, chat_model: BaseChatModel, paper_meta: PaperMeta) -> PaperMeta:
         to_correct: set[str] = set()
 
@@ -605,7 +609,7 @@ class PaperExtractionService:
                 author.affiliation_country = corrected[author.affiliation_country]
         return paper_meta
 
-
+    @tracepoint(invisible_args=["self", "chat_model"])
     async def _unify_country_name_by_llm(self, chat_model: BaseChatModel, to_correct: set[str]) -> dict[str, str]:
         to_correct = set(to_correct)
         retry_count = 3
