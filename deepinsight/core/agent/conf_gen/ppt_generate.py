@@ -164,7 +164,7 @@ class TableContent(BaseModel):
     type: Optional[str] = Field("table", description="类型为 table")
     path: Optional[str] = Field(None, description="表格文件路径，和content二选一即可")
     content: Optional[str] = Field(None,
-                                   description="表格csv实际内容，和path二选一即可，请注意，csv某个单元格如果有逗号等符合，整个单元格需要用引号")
+                                   description="表格实际内容，和path二选一即可，需要为Markdown GFM表格格式")
 
 
 class BasePage(BaseModel):
@@ -226,7 +226,7 @@ class InstitutionTechFeaturePageContent(BaseModel):
     top_institution_png: Optional[ImageContent] = Field(None,
                                                        description="领先机构分布图")
     institution_tech_feat_intro: Optional[str] = Field(None, description="机构技术特征介绍，长度100-200，请从原文中的以下内容获取对应信息，并且精简对应内容（事实描述用一句话略写）并保留全部主要信息：1.概述、2.机构研究重点、3.产学研分析、4.中国机构概述，对于每部分内容用段落形式，标题需带有序号且加粗，内容中关键信息用红色标记，换行时不要空行;内容要求禁止空泛的总结句，直接、具体地切入主题;涉及到 企业 高校 字样用红色标记")
-    compony_school_analysis_png: Optional[ImageContent] = Field(None,
+    company_school_analysis_png: Optional[ImageContent] = Field(None,
                                                                description="企业与高校分布分析图")
     institution_tech_feat_summary: Optional[str] = Field(None, description="一段话，总结机构技术特征，长度100字左右，如果原文中有一句话总结 内容，则直接借鉴原文，但内容要求禁止空泛的总结句，直接、具体地切入主题，如第一句不以“基于”开头，；关键内容使用黄色标记，但不要整个字段内容都是黄色的")
 
@@ -240,7 +240,7 @@ class InstitutionTechFeaturePage(BasePage):
 class InstitutionTechStrengthPageContent(BaseModel):
     university_tech_strength_csv: Optional[TableContent] = Field(None,
                                                                  description="高校技术强度表格，通常高校众多，因此精简原始数据，每个高校选取占比最高的一条记录即可，总行数最多不要超过8条")
-    compony_tech_strength_csv: Optional[TableContent] = Field(None,
+    company_tech_strength_csv: Optional[TableContent] = Field(None,
                                                              description="企业技术强度表格，通常企业众多，因此精简原始数据，每个企业选取占比最高的两条记录即可")
     institution_tech_strength_intro: Optional[str] = Field(None, description="机构技术优势介绍，长度100-200，请从原文中的以下内容获取对应信息，并且精简对应内容（事实描述用一句话略写）并保留全部主要信息：1.高校技术优势分析及趋势、2.企业技术优势分析及趋势总结、3.启示，对于每部分内容用段落形式，标题需带有序号且加粗，内容中关键信息用红色标记，换行时不要空行；内容要求禁止空泛的总结句，直接、具体地切入主题")
     institution_tech_strength_summary: Optional[str] = Field(None, description="一段话，机构技术优势总结，长度100-200，如果原文中有一句话总结 内容，则直接借鉴原文，但内容要求禁止空泛的总结句，直接、具体地切入主题，如第一句不以“基于”开头，；关键内容使用黄色标记，但不要整个字段内容都是黄色的")
