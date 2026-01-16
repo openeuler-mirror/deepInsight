@@ -3,18 +3,24 @@ from __future__ import annotations
 import io
 import json
 import os
-from typing import Dict, Any, Tuple, List
+from collections import deque
+from typing import Dict, Any, Tuple, List, Literal
 from pathlib import Path
 import json
+import logging
 import re
 from copy import deepcopy
 import csv
 
+from bs4 import BeautifulSoup
+from bs4.element import NavigableString, Tag
 from pptx import Presentation
 from pptx.enum.text import PP_ALIGN
 from pptx.dml.color import RGBColor
 from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt, Cm
+
+from deepinsight.utils.md_render import to_html
 
 SLIDE_INDEX_MAP = {
     "cover_page": 0,
@@ -121,13 +127,14 @@ STYLE_CONFIG = {
     "institution_tech_feature_page": {
         "top_institution_png": {},
         "institution_tech_feat_intro": {"font_size": 12, "bold": False, "color": [0, 0, 0]},
-        "compony_school_analysis_png": {},
+        "company_school_analysis_png": {},
+        "institution_tech_feat_summary": {"font_size": 12, "bold": False, "color": [255, 255, 255]},
     },
 
     # === 新增：机构技术优势分析 ===
     "institution_tech_strength_page": {
         "university_tech_strength_csv": institution_tech_table_stype,
-        "compony_tech_strength_csv": institution_tech_table_stype,
+        "company_tech_strength_csv": institution_tech_table_stype,
         "institution_tech_strength_intro": {"font_size": 12, "bold": False, "color": [0, 0, 0]},
         "institution_tech_strength_summary": {"font_size": 12, "bold": False, "color": [255, 255, 255]},
     },
@@ -203,6 +210,47 @@ class PPTTemplateService:
     - 文本占位符：形状或表格单元格中的文本包含 `{{key}}` 时，替换为 JSON 中的对应值。
     - 暂不处理图片与图表的动态替换，后续可扩展。
     """
+    @staticmethod
+    def _cleanup_html_breaks(cell: Tag, keep_bold_mark: bool, bold_mark: Literal["**", "__"]) -> str:
+        skip = {"code", "pre", "span", "br"}
+        bold = {"b", "strong"}
+        queue = deque(cell.contents)
+        while queue:
+            node = queue.popleft()
+            if node.name in bold and keep_bold_mark:  # noqa: bs do not make a typehint on .name
+                node.insert_before(NavigableString(bold_mark))
+                node.insert_after(NavigableString(bold_mark))
+            if isinstance(node, NavigableString):
+                node.replace_with(re.sub(r"\s+", " ", node))
+            elif node.name in skip:  # noqa: bs do not make a typehint on .name
+                continue
+            elif hasattr(node, "contents"):
+                queue.extend(node.contents)
+
+        for br in cell.find_all("br"):
+            br.replace_with("\n")
+
+        return cell.get_text(strip=False)
+
+    @classmethod
+    def load_md_table(cls, md: str, keep_bold_mark: bool = True, bold_mark: Literal["**", "__"] = "**") -> list[list[str]]:
+        html = to_html(md)[0]
+        soup = BeautifulSoup(html, "lxml")
+        html_tables = soup.find_all("table")
+        if len(html_tables) > 1:
+            logging.warning("More than one table found. Only the first table is reserved.")
+        elif not html_tables:
+            logging.warning("No table found.")
+            return []
+        html_table = html_tables[0]
+        out_table = []
+        for row in html_table.find_all("tr"):
+            cells = row.find_all(['th', 'td'])
+            out_row = []
+            for cell in cells:
+                out_row.append(cls._cleanup_html_breaks(cell, keep_bold_mark, bold_mark))
+            out_table.append(out_row)
+        return out_table
 
     def fill_from_json_file(self, template_path: str, json_file_path: str, output_name: str | None = None) -> Presentation:
         """
@@ -283,12 +331,11 @@ class PPTTemplateService:
                     isinstance(val, str) and val.endswith(".csv")):
                 path = val.get("path") if isinstance(val, dict) else val
                 conf_table = STYLE_CONFIG.get(type_name, {}).get(key, {})
-                csv_str = val.get("content") if isinstance(val, dict) else val
+                md_str = val.get("content") if isinstance(val, dict) else val
                 if path and Path(path).exists():
                     self._insert_table_from_csv(slide, shape, csv_path=path, conf=conf_table)
-                elif csv_str:
-                    self._insert_table_from_csv(slide, shape, csv_str=csv_str, conf=conf_table)
-
+                elif md_str:
+                    self._insert_table_from_md(slide, shape, md=md_str, conf=conf_table)
 
             else:
                 text = val["text"] if isinstance(val, dict) and val.get("text") else val
@@ -355,6 +402,9 @@ class PPTTemplateService:
         solidFill.append(srgbClr)
         tcPr.append(solidFill)
 
+    def _insert_table_from_md(self, slide, template_shape, md: str, conf: dict) -> None:
+        table = self.load_md_table(md, keep_bold_mark=True)
+        self._insert_table_from_array(slide, template_shape, table, conf)
 
     def _insert_table_from_csv(self, slide, template_shape, csv_path: str = None, csv_str: str = None, conf: dict = None):
         conf = conf or {}
@@ -370,7 +420,10 @@ class PPTTemplateService:
             reader = csv.reader(csv_content)
             for row in reader:
                 rows.append(row)
+        self._insert_table_from_array(slide, template_shape, rows, conf)
 
+    @staticmethod
+    def _insert_table_from_array(slide, template_shape, rows: list[list[str]], conf: dict):
         if not rows:
             return
 
@@ -754,3 +807,5 @@ class PPTTemplateService:
         for offset, idx in enumerate(indices):
             rId = sldIdLst[idx - offset]
             sldIdLst.remove(rId)
+
+

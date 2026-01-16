@@ -29,7 +29,7 @@ from deepinsight.core.tools.paper_statistic import (
 from deepinsight.core.utils.mcp_utils import MCPClientUtils
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.core.types.graph_config import ResearchConfig, SearchAPI
-from deepinsight.core.types.research import FinalResult
+from deepinsight.core.types.research import ClarifyNeedUser, FinalResult
 
 from deepinsight.core.agent.resch_gen.supervisor import graph as deep_research_graph
 from deepinsight.core.agent.conf_gen.conf_stat_value_mining import conf_stat_graph
@@ -151,7 +151,7 @@ async def question_clarify_node(state: ConferenceState, config: RunnableConfig):
 
 
 async def wait_user_clarify_node(state: ConferenceState):
-    user_reply = interrupt(QuestionClarify(question=state["messages"][-1].content))
+    user_reply = interrupt(ClarifyNeedUser(question=state["messages"][-1].content))
     return {
         "messages": [HumanMessage(content=user_reply)]
     }
