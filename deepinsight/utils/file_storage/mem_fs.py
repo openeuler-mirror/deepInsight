@@ -4,7 +4,7 @@ import re
 import threading
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, Literal
 
 from deepagents.backends.protocol import BackendProtocol, EditResult, FileInfo, GrepMatch, WriteResult
 from langchain_core.tools import tool, BaseTool
@@ -27,10 +27,13 @@ class DeepAgentsBackend(BackendProtocol):
         return self.__fs.ls_info(path)
 
     def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> str:
+        """`offset` and `limit` is line number."""
         try:
-            return self.__fs.read(file_path, offset, limit)
+            content = self.__fs.read(file_path)
         except (IsADirectoryError, PermissionError, FileNotFoundError, IsBinaryError) as e:
             return f"{type(e).__name__}: {e}"
+        lines = content.splitlines(keepends=True)[offset:offset + limit]
+        return "".join(lines)
 
     def grep_raw(self, pattern: str, path: str | None = None, glob: str | None = None) -> list[GrepMatch] | str:
         try:
@@ -58,12 +61,12 @@ class DeepAgentsBackend(BackendProtocol):
 
 class MemFileSystem(ABC):
     @abstractmethod
-    def ls_info(self, path: str) -> list[FileInfo]:
+    def ls_info(self, path: str = "/") -> list[FileInfo]:
         """Structured listing with file metadata."""
 
     @abstractmethod
-    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> str:
-        """Read file content with line numbers or an error string."""
+    def read_raw(self, file_path: str) -> str | bytes:
+        """Read file content."""
 
     @abstractmethod
     def grep(self, pattern: str, path: str | None = None, glob: str | None = None) -> list[GrepMatch]:
@@ -74,7 +77,7 @@ class MemFileSystem(ABC):
         """Structured glob matching returning FileInfo dicts."""
 
     @abstractmethod
-    def write(self, file_path: str, content: str) -> None:
+    def write(self, file_path: str, content: str | bytes, allow_overwrite: bool = False) -> None:
         """Create a new file. Returns WriteResult; error populated on failure."""
 
     @abstractmethod
@@ -88,6 +91,34 @@ class MemFileSystem(ABC):
     @abstractmethod
     def make_dir(self, path: str) -> None:
         """Make a new directory."""
+
+    @abstractmethod
+    def exists(self, path: str) -> Literal[False, "file", "dir"]:
+        """Check if `path` exist and type of path."""
+
+    def read(self, file_path: str) -> str:
+        """Read text file content."""
+        content = self.read_raw(file_path)
+        if isinstance(content, bytes):
+            raise IsBinaryError()
+        return content
+
+    def is_file(self, path: str) -> bool:
+        return self.exists(path) == "file"
+
+    def is_dir(self, path: str) -> bool:
+        return self.exists(path) == "dir"
+
+    def read_all(self, path: str) -> dict[str, str]:
+        path = _norm_path(path, allow_root=True)
+        files = [f["path"] for f in self.ls_info(path) if not f.get("is_dir", False)]
+        ret = {}
+        for filename in files:
+            try:
+                ret[filename] = self.read(_norm_path(path, filename, allow_root=False))
+            except IsBinaryError:
+                continue
+        return ret
 
     def deep_agent_backend(self) -> BackendProtocol:
         return DeepAgentsBackend(self)
@@ -120,7 +151,7 @@ class MemFileSystem(ABC):
         @tool("read_file", return_direct=True)
         def read_file_tool(file_path: str) -> str:
             """Read the contents of a file."""
-            return self.read(file_path, limit=-1)
+            return self.read(file_path)
 
         @tool("list_directory", return_direct=True)
         def list_directory_tool(path: str) -> str:
@@ -186,6 +217,10 @@ class RootFileSystem(MemFileSystem):
         return path.rsplit("/", 1)[0] + "/"
 
     @classmethod
+    def from_empty(cls) -> "RootFileSystem":
+        return cls({}, [], mem_root_prefix="/")
+
+    @classmethod
     def from_storage(cls, file_list: dict[str, bytes], empty_dirs: list[str],
                      root_prefix: str = "/") -> "RootFileSystem":
         raise NotImplementedError("Currently memfs can only be imported from local disk.")
@@ -212,7 +247,7 @@ class RootFileSystem(MemFileSystem):
 
         return cls(file_lists, list(dirs), root_prefix)
 
-    def ls_info(self, path: str) -> list[FileInfo]:
+    def ls_info(self, path: str = "/") -> list[FileInfo]:
         with self.__lock:
             path = self.__norm_path(path, allow_root=True, check_exists=True)
             if path in self.__files:
@@ -226,15 +261,11 @@ class RootFileSystem(MemFileSystem):
                 if (dir_name != path) and dir_name.startswith(path) and ("/" not in dir_name[path_len:-1])
             ]
 
-    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> str:
+    def read_raw(self, file_path: str) -> str | bytes:
         with self.__lock:
             path = self.__norm_path(file_path, allow_root=False, check_exists=True, must_be_file=True)
             content = self.__files[path]
-            if isinstance(content, bytes):
-                raise IsBinaryError()
-            if limit > 0:
-                return content[offset:offset + limit]
-            return content[offset:]
+            return content
 
     def grep(self, pattern: str, path: str | None = None, glob: str | None = None) -> list[GrepMatch]:
         regex = re.compile(pattern)
@@ -276,16 +307,17 @@ class RootFileSystem(MemFileSystem):
             ]
             return sorted(matches, key=lambda item: item["path"])
 
-    def write(self, file_path: str, content: str) -> None:
+    def write(self, file_path: str, content: str | bytes, allow_overwrite: bool = False) -> None:
         with self.__lock:
             path = self.__norm_path(file_path, allow_root=False, check_exists=False)
-            if path in self.__files:
+            if path in self.__files and not allow_overwrite:
                 raise FileExistsError(path)
             if path + "/" in self.__dirs:
                 raise IsADirectoryError(path)
             dir_name = self.__dir_name(path)
             self._mkdir_no_lock(dir_name)
             self.__files[path] = content
+            self.__unchanged -= {path}
 
     def edit(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False) -> int:
         with self.__lock:
@@ -307,6 +339,17 @@ class RootFileSystem(MemFileSystem):
     def make_dir(self, path: str) -> None:
         with self.__lock:
             self._mkdir_no_lock(path)
+
+    def exists(self, path: str) -> Literal[False, "file", "dir"]:
+        with self.__lock:
+            path = self.__norm_path(path, allow_root=True, check_exists=False)
+            if path in self.__files:
+                return "file"
+            if path == self.__root_dir_name:
+                return "dir"
+            if path + "/" in self.__dirs:
+                return "dir"
+            return False
 
     def export_to_local_disk(self, export_to: str) -> None:
         """return number of make directory / write of files."""
@@ -333,11 +376,6 @@ class RootFileSystem(MemFileSystem):
                 if not sub_dir.is_dir():
                     logging.error(f"Assertion error: {sub_dir!r} is not a directory, skip!")
             for filename, file_content in self.__files.items():
-                if isinstance(file_content, bytes):
-                    logging.debug(f"File {filename!r} is a binary which regarded as no changes. skip.")
-                if filename in self.__unchanged:
-                    logging.debug(f"File {filename!r} not changed. skip.")
-                    continue
                 abs_path = pathlib.Path(export_path, filename[root_prefix_len:]).resolve()
                 if not str(abs_path).startswith(export_path_str):
                     logging.error(f"Assertion error: {str(abs_path)!r} is not a sub directory of {export_path_str!r},"
@@ -349,8 +387,16 @@ class RootFileSystem(MemFileSystem):
                     logging.error(f"Assertion error: {str(abs_path.parent)!r} is not a directory, skip exporting "
                                   f"{str(abs_path)!r}!")
                     continue
-                with open(abs_path, mode="wt", encoding="utf8") as f:
-                    f.write(file_content)
+                if filename in self.__unchanged and abs_path.exists():
+                    logging.debug(f"File {filename!r} not changed. skip.")
+                    continue
+                try:
+                    with open(abs_path, mode="wb") as f:
+                        f.write(file_content if isinstance(file_content, bytes) else file_content.encode("utf8"))
+                        self.__unchanged.add(filename)
+                except (FileNotFoundError, PermissionError) as e:
+                    logging.warning(f"Export {filename!r} to {abs_path!r} failed with {type(e).__name__}: {e}",
+                                    exc_info=True)
 
     def export_as_storage(self, include_unchanged: bool = False) -> Any:
         """Return a dict that match all files (metadata included) """
@@ -409,13 +455,13 @@ class ChildFileSystem(MemFileSystem):
         self.__prefix_len = len(sub_path)
         self.__root.make_dir(sub_path)
 
-    def ls_info(self, path: str) -> list[FileInfo]:
+    def ls_info(self, path: str = "/") -> list[FileInfo]:
         with self.__forward_to(path):
             return self.__root.ls_info(self.__abs_path(path, allow_root=True))
 
-    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> str:
+    def read_raw(self, file_path: str) -> str | bytes:
         with self.__forward_to(file_path):
-            return self.__root.read(self.__abs_path(file_path, allow_root=False), offset, limit)
+            return self.__root.read_raw(self.__abs_path(file_path, allow_root=False))
 
     def grep(self, pattern: str, path: str | None = None, glob: str | None = None) -> list[GrepMatch]:
         with self.__forward_to(path or "/"):
@@ -431,9 +477,9 @@ class ChildFileSystem(MemFileSystem):
                 f["path"] = f["path"][self.__prefix_len:]
             return ret
 
-    def write(self, file_path: str, content: str) -> None:
+    def write(self, file_path: str, content: str | bytes, allow_overwrite: bool = False) -> None:
         with self.__forward_to(file_path):
-            self.__root.write(self.__abs_path(file_path, allow_root=False), content)
+            self.__root.write(self.__abs_path(file_path, allow_root=False), content, allow_overwrite)
 
     def edit(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False) -> int:
         with self.__forward_to(file_path):
@@ -444,6 +490,10 @@ class ChildFileSystem(MemFileSystem):
 
     def make_dir(self, path: str) -> None:
         self.__root.make_dir(self.__abs_path(path, allow_root=False))
+
+    def exists(self, path: str) -> Literal[False, "file", "dir"]:
+        with self.__forward_to(path):
+            return self.__root.exists(self.__abs_path(path, allow_root=True))
 
     def __abs_path(self, path: str, allow_root: bool) -> str:
         return self.__sub_path + _norm_path(path, allow_root=allow_root)
