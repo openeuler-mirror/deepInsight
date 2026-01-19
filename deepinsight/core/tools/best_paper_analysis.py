@@ -8,7 +8,6 @@ from langchain.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from deepinsight.core.tools.file_system import register_fs_tools, MemoryMCPFilesystem
 from deepinsight.core.utils.tool_utils import create_retrieval_tool, CoerceToolOutput
 from deepinsight.core.types.graph_config import RetrievalType
 from deepinsight.core.utils.research_utils import parse_research_config
@@ -31,8 +30,7 @@ async def analyze_single_paper(paper_info: str, output_dir: str, config: Runnabl
     """
     try:
         rc = parse_research_config(config)
-        fs_instance = MemoryMCPFilesystem()
-        tools = register_fs_tools(fs_instance)
+        tools = rc.file_system.tools()
 
         tavily_instance = tavily_key_manager().tool(
             max_results=2,
@@ -92,6 +90,7 @@ async def analyze_single_paper(paper_info: str, output_dir: str, config: Runnabl
             tools=tools,
             system_prompt=prompt_template,
             middleware=middleware,
+            backend=rc.file_system.deep_agent_backend(),
             subagents=[summary_subagent]
         )
         input_messages = [

@@ -25,7 +25,6 @@ from deepinsight.core.utils.progress_utils import progress_stage
 
 from deepinsight.core.agent.conf_gen.cross_topic_paper_collection import collect_papers_for_topic
 from deepinsight.core.tools.best_paper_analysis import batch_analyze_papers, analyze_single_paper
-from deepinsight.core.tools.file_system import register_fs_tools, MemoryMCPFilesystem, fs_instance
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.core.types.graph_config import ResearchConfig
 from deepinsight.core.types.research import FinalResult
@@ -101,7 +100,7 @@ async def collect_papers_node(state: CrossTopicState, config: RunnableConfig):
     from deepinsight.core.types.graph_config import RetrievalType
     
     rc = parse_research_config(config)
-    papers_output_file = f"/{rc.run_id}/papers_list.md"
+    papers_output_file = f"/papers_list.md"
     
     # 从 config 的 retrieval_config 中获取 kb_ids（与 deep_research_team_node 保持一致）
     # 注意：web 版本的 kb_ids 可能是字符串（UUID），CLI 版本是整数
@@ -197,10 +196,8 @@ async def collect_papers_node(state: CrossTopicState, config: RunnableConfig):
         )
         
         if not papers:
-            # 检查文件是否存在（使用单例实例）
-            from deepinsight.core.tools.file_system import fs_instance
-            content = fs_instance.read_file(papers_output_file)
-            if not content:
+            # 检查文件是否存在
+            if not rc.file_system.is_file(papers_output_file):
                 error_msg = (
                     f"未找到相关论文。可能的原因：\n"
                     f"1. 数据库中可能没有与主题 '{state.get('question', '')}' 相关的论文\n"
@@ -212,6 +209,7 @@ async def collect_papers_node(state: CrossTopicState, config: RunnableConfig):
                     f"- 主题关键词是否准确"
                 )
             else:
+                content = rc.file_system.read(papers_output_file)
                 error_msg = (
                     f"未找到相关论文。Agent 生成了文件但解析失败。\n"
                     f"文件内容预览: {content[:500]}\n"
@@ -239,7 +237,6 @@ async def generate_statistics_node(state: CrossTopicState, config: RunnableConfi
     from deepagents import create_deep_agent
     from langchain.agents.middleware import ModelFallbackMiddleware
     from langchain_tavily import TavilySearch
-    from deepinsight.core.tools.file_system import register_fs_tools, MemoryMCPFilesystem
     from deepinsight.core.utils.tool_utils import CoerceToolOutput
     from langfuse.langchain import CallbackHandler
     
@@ -257,9 +254,7 @@ async def generate_statistics_node(state: CrossTopicState, config: RunnableConfi
         except Exception:
             question = ""
         state["question"] = question
-    fs_instance = MemoryMCPFilesystem()
-    tools = register_fs_tools(fs_instance)
-    
+
     tavily_instance = TavilySearch(
         max_results=2,
         topic="general",
@@ -269,7 +264,7 @@ async def generate_statistics_node(state: CrossTopicState, config: RunnableConfi
         include_image_descriptions=True,
         search_depth="advanced",
     )
-    tools.append(tavily_instance)
+    tools = [tavily_instance]
     
     # 构建论文信息字符串（会议信息从用户问题中获取）
     papers_info = "\n".join([
@@ -287,7 +282,7 @@ async def generate_statistics_node(state: CrossTopicState, config: RunnableConfi
         papers_info=papers_info,
     )
     
-    output_file = f"/{rc.run_id}/{ConferenceFileNames.CROSS_TOPIC_STATISTICS_MD}"
+    output_file = ConferenceFileNames.CROSS_TOPIC_STATISTICS_MD
     
     middleware = [
         CoerceToolOutput(),
@@ -302,6 +297,7 @@ async def generate_statistics_node(state: CrossTopicState, config: RunnableConfi
         tools=tools,
         system_prompt=prompt_template,
         middleware=middleware,
+        backend=rc.file_system.deep_agent_backend()
     )
     
     user_message = f"请生成跨会议主题分析的统计信息报告，保存到：{output_file}"
@@ -334,7 +330,7 @@ async def generate_statistics_node(state: CrossTopicState, config: RunnableConfi
             await agent.ainvoke({"messages": [{"role": "user", "content": user_message}]}, config=config_dict)
     
     # 读取生成的文件
-    statistics_content = fs_instance.read_file(output_file)
+    statistics_content = rc.file_system.read(output_file)
     
     return {
         "statistics_content": statistics_content,
@@ -346,13 +342,11 @@ async def generate_statistics_node(state: CrossTopicState, config: RunnableConfi
 async def analyze_papers_node(state: CrossTopicState, config: RunnableConfig):
     """批量分析论文节点"""
     rc = parse_research_config(config)
-    papers_output_dir = f"/{rc.run_id}/{ConferenceFolderNames.CROSS_TOPIC_PAPERS}"
+    papers_output_dir = ConferenceFolderNames.CROSS_TOPIC_PAPERS
     
     # 确保输出目录存在（在内存文件系统中）
-    fs_instance = MemoryMCPFilesystem()
-    fs_instance._ensure_dir_exists(papers_output_dir)
-    logger.info(f"确保论文输出目录存在: {papers_output_dir}")
-    
+    rc.file_system.make_dir(papers_output_dir)
+
     # 准备论文信息列表，过滤无效条目并去重
     invalid_keywords = ['概述', '论文列表', '统计信息', '主题分布', 'Overview', 'Paper List', 'Statistics', 'Topic Distribution', 'List', 'Summary']
     valid_papers = []
@@ -443,14 +437,11 @@ async def generate_summary_node(state: CrossTopicState, config: RunnableConfig):
     from deepagents import create_deep_agent
     from langchain.agents.middleware import ModelFallbackMiddleware
     from langchain_tavily import TavilySearch
-    from deepinsight.core.tools.file_system import register_fs_tools, MemoryMCPFilesystem
     from deepinsight.core.utils.tool_utils import CoerceToolOutput
     from langfuse.langchain import CallbackHandler
     
     rc = parse_research_config(config)
-    fs_instance = MemoryMCPFilesystem()
-    tools = register_fs_tools(fs_instance)
-    
+
     tavily_instance = TavilySearch(
         max_results=2,
         topic="general",
@@ -460,10 +451,10 @@ async def generate_summary_node(state: CrossTopicState, config: RunnableConfig):
         include_image_descriptions=True,
         search_depth="advanced",
     )
-    tools.append(tavily_instance)
+    tools = [tavily_instance]
     
     # 读取所有论文分析文件
-    paper_files_content_map = fs_instance.read_all_files_in_dir(state["papers_analysis_dir"])
+    paper_files_content_map = rc.file_system.read_all(state["papers_analysis_dir"])
     papers_content = "\n\n".join(content for _, content in paper_files_content_map.items())
     
     # 兼容没有显式 question 的情况，从 state 或 messages 中推断
@@ -489,7 +480,7 @@ async def generate_summary_node(state: CrossTopicState, config: RunnableConfig):
         papers_content=papers_content,
     )
     
-    output_file = f"/{rc.run_id}/{ConferenceFileNames.CROSS_TOPIC_SUMMARY_MD}"
+    output_file = ConferenceFileNames.CROSS_TOPIC_SUMMARY_MD
     
     middleware = [
         CoerceToolOutput(),
@@ -504,6 +495,7 @@ async def generate_summary_node(state: CrossTopicState, config: RunnableConfig):
         tools=tools,
         system_prompt=prompt_template,
         middleware=middleware,
+        backend=rc.file_system.deep_agent_backend()
     )
     
     user_message = f"请生成跨会议主题分析的总结报告，保存到：{output_file}"
@@ -536,7 +528,7 @@ async def generate_summary_node(state: CrossTopicState, config: RunnableConfig):
             await agent.ainvoke({"messages": [{"role": "user", "content": user_message}]}, config=config_dict)
     
     # 读取生成的文件
-    summary_content = fs_instance.read_file(output_file)
+    summary_content = rc.file_system.read(output_file)
     
     return {
         "summary_content": summary_content,
@@ -544,73 +536,12 @@ async def generate_summary_node(state: CrossTopicState, config: RunnableConfig):
     }
 
 
-@progress_stage("保存文件到磁盘")
+@progress_stage("保存PDF文件到磁盘")
 async def save_files_node(state: CrossTopicState, config: RunnableConfig):
-    """保存文件到磁盘节点"""
+    """保存PDF文件到磁盘节点。Markdown文件由图的调用方保存。"""
     rc = parse_research_config(config)
-    
-    # 确定输出路径
-    work_root = getattr(rc, "work_root", None)
-    if not work_root:
-        work_root = os.getcwd()
-    thread_id = rc.thread_id
-    output_path = os.path.join(work_root, "conference_report_result", thread_id)
-    os.makedirs(output_path, exist_ok=True)
-    
-    # 导出内存文件系统到磁盘
-    # 确保使用单例 fs_instance，并确保导出目录存在于内存文件系统中
-    output_dir = f"/{rc.run_id}/"
-    fs_instance._ensure_dir_exists(output_dir)  # 确保目录存在
-    
-    # 检查内存文件系统中的文件
-    logger.info(f"内存文件系统中的目录: {fs_instance.dirs}")
-    logger.info(f"内存文件系统中的文件: {list(fs_instance.files.keys())}")
-    logger.info(f"准备导出目录: {output_dir}")
-    
-    # 检查是否有论文分析文件
-    papers_dir_in_memory = f"{output_dir}{ConferenceFolderNames.CROSS_TOPIC_PAPERS}/"
-    papers_files_in_memory = [f for f in fs_instance.files.keys() if f.startswith(papers_dir_in_memory)]
-    logger.info(f"内存文件系统中的论文分析文件 ({len(papers_files_in_memory)} 个): {papers_files_in_memory[:5]}...")
-    
-    try:
-        export_result = fs_instance.export_to_real_fs(real_dir=output_path, folder_path=output_dir)
-        logger.info(f"文件导出结果: {export_result}")
-    except Exception as e:
-        logger.warning(f"导出内存文件系统失败: {e}，尝试手动保存文件")
-        # 如果导出失败，手动保存关键文件
-        if state.get("statistics_content"):
-            statistics_file_path = os.path.join(output_path, ConferenceFileNames.CROSS_TOPIC_STATISTICS_MD)
-            with open(statistics_file_path, 'w', encoding='utf-8') as f:
-                f.write(state["statistics_content"])
-        if state.get("summary_content"):
-            summary_file_path = os.path.join(output_path, ConferenceFileNames.CROSS_TOPIC_SUMMARY_MD)
-            with open(summary_file_path, 'w', encoding='utf-8') as f:
-                f.write(state["summary_content"])
-    
-    # 确保统计信息和总结文件已保存（如果内存文件系统已导出，这些文件应该已经存在）
-    # 如果不存在，手动保存
-    statistics_file_path = os.path.join(output_path, ConferenceFileNames.CROSS_TOPIC_STATISTICS_MD)
-    summary_file_path = os.path.join(output_path, ConferenceFileNames.CROSS_TOPIC_SUMMARY_MD)
-    papers_list_file_path = os.path.join(output_path, "papers_list.md")
-    papers_dir = os.path.join(output_path, ConferenceFolderNames.CROSS_TOPIC_PAPERS)
-    
-    # 检查导出后的文件结构
-    logger.info(f"导出后的输出路径: {output_path}")
-    logger.info(f"导出后的文件列表: {os.listdir(output_path) if os.path.exists(output_path) else '目录不存在'}")
-    logger.info(f"论文分析目录路径: {papers_dir}")
-    logger.info(f"论文分析目录是否存在: {os.path.exists(papers_dir)}")
-    if os.path.exists(papers_dir):
-        logger.info(f"论文分析目录中的文件: {os.listdir(papers_dir)}")
-    
-    if not os.path.exists(statistics_file_path) and state.get("statistics_content"):
-        with open(statistics_file_path, 'w', encoding='utf-8') as f:
-            f.write(state["statistics_content"])
-        logger.info(f"手动保存统计信息文件: {statistics_file_path}")
-    
-    if not os.path.exists(summary_file_path) and state.get("summary_content"):
-        with open(summary_file_path, 'w', encoding='utf-8') as f:
-            f.write(state["summary_content"])
-        logger.info(f"手动保存总结文件: {summary_file_path}")
+    papers_list_file_path = "papers_list.md"
+    papers_dir = ConferenceFolderNames.CROSS_TOPIC_PAPERS
     
     # 构建 PDF 内容：按照顺序合并所有内容
     # 1. 统计信息
@@ -620,69 +551,60 @@ async def save_files_node(state: CrossTopicState, config: RunnableConfig):
     markdown_parts = []
     
     # 1. 添加统计信息
-    if os.path.exists(statistics_file_path):
-        with open(statistics_file_path, 'r', encoding='utf-8') as f:
-            markdown_parts.append(f"# 统计信息\n\n{f.read()}")
-    elif state.get("statistics_content"):
-        markdown_parts.append(f"# 统计信息\n\n{state['statistics_content']}")
-    
+    if rc.file_system.is_file(ConferenceFileNames.CROSS_TOPIC_STATISTICS_MD):
+        markdown_parts.append(f"# 统计信息\n\n{rc.file_system.read(ConferenceFileNames.CROSS_TOPIC_STATISTICS_MD)}")
+
     # 2. 添加论文分析（按文件名排序）
-    if os.path.exists(papers_dir):
+    if rc.file_system.is_dir(ConferenceFolderNames.CROSS_TOPIC_PAPERS):
         paper_files = sorted(
-            [f for f in os.listdir(papers_dir) if f.endswith(".md")],
-            key=lambda x: x.lower()
+            [(name, content) for name, content in rc.file_system.read_all(papers_dir).items() if name.endswith(".md")],
+            key=lambda item: item[0].lower()
         )
         if paper_files:
             markdown_parts.append("\n\n# 论文分析\n\n")
-            for paper_file in paper_files:
-                paper_path = os.path.join(papers_dir, paper_file)
-                with open(paper_path, 'r', encoding='utf-8') as f:
-                    markdown_parts.append(f.read())
-                    markdown_parts.append("\n\n---\n\n")  # 论文之间的分隔符
+            for _, content in paper_files:
+                markdown_parts.append(content)
+                markdown_parts.append("\n\n---\n\n")  # 论文之间的分隔符
     
     # 3. 添加总结
-    if os.path.exists(summary_file_path):
-        with open(summary_file_path, 'r', encoding='utf-8') as f:
-            markdown_parts.append(f"# 总结\n\n{f.read()}")
-    elif state.get("summary_content"):
-        markdown_parts.append(f"# 总结\n\n{state['summary_content']}")
-    
+    if rc.file_system.is_file(ConferenceFileNames.CROSS_TOPIC_SUMMARY_MD):
+        markdown_parts.append(f"# 总结\n\n{rc.file_system.read(ConferenceFileNames.CROSS_TOPIC_SUMMARY_MD)}")
+
     # 4. 添加论文列表（如果是 JSON 格式，转换为文本格式）
-    if os.path.exists(papers_list_file_path):
-        with open(papers_list_file_path, 'r', encoding='utf-8') as f:
-            papers_list_content = f.read()
-            # 检查是否是 JSON 格式
-            try:
-                import json
-                papers_data = json.loads(papers_list_content.strip())
-                if isinstance(papers_data, list):
-                    # 转换为 Markdown 文本格式
-                    papers_text_parts = []
-                    for idx, paper in enumerate(papers_data, 1):
-                        title = paper.get('title', 'Unknown Title')
-                        authors = paper.get('authors', 'Unknown Authors')
-                        conference = paper.get('conference', 'Unknown Conference')
-                        year = paper.get('year', 'Unknown Year')
-                        abstract = paper.get('abstract', '')
-                        keywords = paper.get('keywords', '')
-                        
-                        paper_text = f"## {idx}. {title}\n\n"
-                        paper_text += f"**作者**：{authors}\n\n"
-                        paper_text += f"**会议**：{conference} {year}\n\n"
-                        if abstract:
-                            paper_text += f"**摘要**：{abstract}\n\n"
-                        if keywords:
-                            paper_text += f"**关键词**：{keywords}\n\n"
-                        papers_text_parts.append(paper_text)
-                    
-                    papers_text = "\n".join(papers_text_parts)
-                    markdown_parts.append(f"\n\n# 论文列表\n\n{papers_text}")
-                else:
-                    # 不是列表格式，直接使用原内容
-                    markdown_parts.append(f"\n\n# 论文列表\n\n{papers_list_content}")
-            except (json.JSONDecodeError, ValueError):
-                # 不是 JSON 格式，直接使用原内容
+    if rc.file_system.is_file(papers_list_file_path):
+        papers_list_content = rc.file_system.read(papers_list_file_path)
+        # 检查是否是 JSON 格式
+        import json
+        try:
+            papers_data = json.loads(papers_list_content.strip())
+            if isinstance(papers_data, list):
+                # 转换为 Markdown 文本格式
+                papers_text_parts = []
+                for idx, paper in enumerate(papers_data, 1):
+                    title = paper.get('title', 'Unknown Title')
+                    authors = paper.get('authors', 'Unknown Authors')
+                    conference = paper.get('conference', 'Unknown Conference')
+                    year = paper.get('year', 'Unknown Year')
+                    abstract = paper.get('abstract', '')
+                    keywords = paper.get('keywords', '')
+
+                    paper_text = f"## {idx}. {title}\n\n"
+                    paper_text += f"**作者**：{authors}\n\n"
+                    paper_text += f"**会议**：{conference} {year}\n\n"
+                    if abstract:
+                        paper_text += f"**摘要**：{abstract}\n\n"
+                    if keywords:
+                        paper_text += f"**关键词**：{keywords}\n\n"
+                    papers_text_parts.append(paper_text)
+
+                papers_text = "\n".join(papers_text_parts)
+                markdown_parts.append(f"\n\n# 论文列表\n\n{papers_text}")
+            else:
+                # 不是列表格式，直接使用原内容
                 markdown_parts.append(f"\n\n# 论文列表\n\n{papers_list_content}")
+        except (json.JSONDecodeError, ValueError):
+            # 不是 JSON 格式，直接使用原内容
+            markdown_parts.append(f"\n\n# 论文列表\n\n{papers_list_content}")
     
     # 合并所有内容
     merged_markdown = "\n\n".join(markdown_parts)
@@ -705,6 +627,11 @@ async def save_files_node(state: CrossTopicState, config: RunnableConfig):
     final_markdown = header_info + merged_markdown
     
     # 生成 PDF
+    work_root = getattr(rc, "work_root", None)
+    if not work_root:
+        work_root = os.getcwd()
+    output_path = os.path.join(work_root, "conference_report_result", rc.thread_id)
+    pdf_path: str | None = None
     try:
         from deepinsight.utils.trans_md_to_pdf import save_markdown_as_pdf
         from datetime import datetime
@@ -738,7 +665,7 @@ async def save_files_node(state: CrossTopicState, config: RunnableConfig):
     from langchain_core.messages import HumanMessage
     return {
         "output_path": output_path,
-        "pdf_path": pdf_path if 'pdf_path' in locals() else None,
+        "pdf_path": pdf_path,
         "messages": [HumanMessage(content=full_text)],
     }
 

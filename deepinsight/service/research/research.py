@@ -30,6 +30,7 @@ from deepinsight.core.prompt.prompt_manager import PromptManager
 from deepinsight.service.schemas.streaming import StreamEvent
 from deepinsight.service.streaming.stream_adapter import StreamEventAdapter
 from deepinsight.service.ppt.template_service import PPTTemplateService
+from deepinsight.utils.file_storage.mem_fs import RootFileSystem
 from deepinsight.utils.llm_utils import init_langchain_models_from_llm_config
 from deepinsight.utils.common import safe_get
 from deepinsight.core.agent.conf_chat.supervisor import graph as conference_qa_graph
@@ -70,7 +71,8 @@ class ResearchService:
         """Load typed deep_research configuration from scenarios config."""
         return safe_get(self.config, lambda c: c.scenarios.deep_research, None)
 
-    def _build_graph_config(self, req: ResearchRequest, ragflow_authorization: Optional[str] = None) -> dict:
+    def _build_graph_config(self, req: ResearchRequest, ragflow_authorization: Optional[str] = None,
+                            *, file_system: RootFileSystem) -> dict:
         """Build a graph_config with request-first precedence, falling back to config.yaml."""
         # Prefer request-provided LLM configs, else use system defaults (wrapped)
         model_configs = req.args.llm_options if (
@@ -135,6 +137,7 @@ class ResearchService:
             "configurable": {
                 "thread_id": req.conversation_id,
                 "run_id": run_id,
+                "file_system": file_system,
                 "models": models,
                 "default_model": default_model,
                 "llm_max_tokens": 8192,
@@ -248,7 +251,9 @@ class ResearchService:
         - ragflow_authorization: Optional authorization token for RAG services
         - scene_type: 从请求中读取，选择对应的 graph
         """
-        graph_config = self._build_graph_config(request, ragflow_authorization)
+        disk_path = os.path.join(self.config.workspace.work_root, request.conversation_id)
+        file_system = RootFileSystem.from_local_disk(disk_path)
+        graph_config = self._build_graph_config(request, ragflow_authorization, file_system=file_system)
         adapter = StreamEventAdapter(
             text_stream_block_nodes=self._text_block_nodes or None,
             tool_call_stream_block_nodes=self._tool_call_block_nodes or None,
@@ -263,6 +268,7 @@ class ResearchService:
             conversation_id=request.conversation_id,
         ):
             yield event
+        file_system.export_to_local_disk(disk_path)
 
     async def ppt_generate(
         self,
@@ -292,6 +298,7 @@ class ResearchService:
                 "configurable": {
                     "thread_id": request.conversation_id,
                     "run_id": run_id,
+                    "file_system": RootFileSystem.from_empty(),  # todo: implements later
                     "models": models,
                     "default_model": default_model,
                     "prompt_manager": PromptManager(self.config.prompt_management),

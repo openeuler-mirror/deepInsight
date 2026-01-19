@@ -12,13 +12,15 @@ from __future__ import annotations
 import operator
 from typing import Any, Dict, List
 import logging
+
+from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 import yaml
 
 from deepinsight.core.types.graph_config import ResearchConfig, ExpertDef
 
 
-def parse_research_config(config: Dict[str, Any]) -> ResearchConfig:
+def parse_research_config(config: Dict[str, Any] | RunnableConfig) -> ResearchConfig:
     """
     将 LangGraph 的 `config`/`graph_config` 字典解析为 ResearchRuntimeOptions。
 

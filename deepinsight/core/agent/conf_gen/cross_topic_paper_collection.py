@@ -12,7 +12,6 @@ from deepagents import create_deep_agent
 from langfuse.langchain import CallbackHandler
 
 from deepinsight.core.tools.tavily_search import tavily_search
-from deepinsight.core.tools.file_system import register_fs_tools, MemoryMCPFilesystem
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.core.utils.tool_utils import CoerceToolOutput
 from deepinsight.utils.db_schema_utils import get_db_models_source_markdown
@@ -41,13 +40,9 @@ async def collect_papers_for_topic(
         论文信息列表
     """
     rc = parse_research_config(config)
-    fs_instance = MemoryMCPFilesystem()
-    tools = register_fs_tools(fs_instance)
-    
     # 使用现有的工具
-    tools.append(PythonREPLTool())
-    tools.append(tavily_search)
-    
+    tools = [PythonREPLTool(), tavily_search]
+
     # 如果没有提供 conference_names，设置为空列表（让 agent 自己从问题中提取）
     if conference_names is None:
         conference_names = []
@@ -82,6 +77,7 @@ async def collect_papers_for_topic(
         tools=tools,
         system_prompt=prompt_template,
         middleware=middleware,
+        backend=rc.file_system.deep_agent_backend()
     )
     
     user_message = f"请收集与主题'{question}'相关的论文列表，并保存到文件：{output_file}"
@@ -123,19 +119,17 @@ async def collect_papers_for_topic(
     except Exception as e:
         logger.error(f"Agent 执行时发生异常: {e}", exc_info=True)
         raise
-    
-    # 检查文件系统状态
-    logger.info(f"检查文件系统状态，文件列表: {list(fs_instance.files.keys())}")
-    logger.info(f"目录列表: {list(fs_instance.dirs)}")
-    
+
     # 读取生成的文件，解析论文列表
-    content = fs_instance.read_file(output_file)
-    
+    if rc.file_system.is_file(output_file):
+        content = rc.file_system.read(output_file)
+    else:
+        logger.warning(f"文件 {output_file} 不存在，agent 可能没有成功生成文件")
+        logger.info(f"内存文件系统中的文件: {[f['path'] for f in rc.file_system.ls_info()]}")
+        return []
     if not content:
         logger.warning(f"文件 {output_file} 为空，agent 可能没有成功生成文件")
-        # 尝试列出所有文件，看看是否有其他文件
-        all_files = fs_instance.list_directory("/")
-        logger.info(f"内存文件系统中的文件: {all_files}")
+        logger.info(f"内存文件系统中的文件: {[f['path'] for f in rc.file_system.ls_info()]}")
         return []
     
     logger.info(f"读取到文件内容，长度: {len(content)} 字符")

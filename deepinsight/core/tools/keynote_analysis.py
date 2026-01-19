@@ -77,7 +77,6 @@ async def analyze_single_keynote(keynote_info: str, output_dir: str, config: Run
     """
     try:
         rc = parse_research_config(config)
-        tools = register_fs_tools(fs_instance)
 
         tavily_instance = tavily_key_manager().tool(
             max_results=2,
@@ -94,8 +93,7 @@ async def analyze_single_keynote(keynote_info: str, output_dir: str, config: Run
             group=rc.prompt_group,
         ).format(output_dir=output_dir)
 
-        tools.append(tavily_instance)
-        tools.append(person_image_search_tool)
+        tools = [tavily_instance, person_image_search_tool]
         from deepagents import create_deep_agent
         middleware = [
             CoerceToolOutput(),
@@ -122,6 +120,7 @@ async def analyze_single_keynote(keynote_info: str, output_dir: str, config: Run
             tools=tools,
             system_prompt=prompt_content,
             middleware=middleware,
+            backend=rc.file_system.deep_agent_backend(),
             subagents=[summary_subagent]
         )
         input_messages = [
