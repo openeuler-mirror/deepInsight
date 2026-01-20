@@ -17,7 +17,6 @@ from langmem.short_term import SummarizationNode
 
 from deepinsight.core.utils.tool_utils import create_retrieval_tool
 from deepinsight.core.utils.progress_utils import progress_stage
-from deepinsight.utils.tavily_key_utils import select_api_key
 from deepinsight.core.utils.research_utils import parse_research_config
 from deepinsight.core.types.research import FinalResult
 from deepinsight.core.types.graph_config import RetrievalType
@@ -30,6 +29,7 @@ from deepinsight.core.agent.conf_chat.statistics import graph as statistics_grap
 from deepinsight.core.tools.tavily_search import tavily_search
 from deepinsight.core.tools.wordcloud_tool import generate_wordcloud
 from deepinsight.service.schemas.research import SceneType
+from deepinsight.utils.tavily_manager import tavily_key_manager, TavilyNoEnvError, TavilyNoAvailableKeyError
 from integrations.mcps.generate_chart import generate_area_chart, generate_bar_chart, generate_column_chart, \
     generate_pie_chart, generate_scatter_chart, generate_line_chart, generate_radar_chart
 
@@ -405,17 +405,15 @@ async def chart_node(state: SupervisorState, config: RunnableConfig) -> Command[
 @progress_stage("顶会深度研究")
 async def deep_research_team_node(state: SupervisorState, config: RunnableConfig) -> Command[Literal[END]]:
     # 调用 retrival Team 的处理流程
-    if os.getenv("TAVILY_API_KEYS"):
-        selected_key, all_keys_usage = select_api_key()
-        if selected_key is None:
-            logging.error("no tavily key can be used, please set first.")
-            for key, usage in all_keys_usage.items():
-                logging.error(f"API Key: {key} - Plan Limit: {usage['plan_limit']}, Plan Usage: {usage['plan_usage']}")
-            writer = get_stream_writer()
-            writer(FinalResult(
-                final_report="no tavily key can be used, please set first."
-            ))
-            return Command(goto=END)
+    try:
+        tavily_key_manager().get_client()
+    except (TavilyNoEnvError, TavilyNoAvailableKeyError):
+        logging.error("no tavily key can be used, please set first.")
+        writer = get_stream_writer()
+        writer(FinalResult(
+            final_report="no tavily key can be used, please set first."
+        ))
+        return Command(goto=END)
 
     parent_configurable = config.get("configurable", {})
     deep_research_config = {

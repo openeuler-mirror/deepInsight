@@ -3,8 +3,6 @@ import asyncio
 import logging
 from typing import List, Annotated, Literal
 
-from tavily import AsyncTavilyClient
-
 from langchain_core.tools import InjectedToolArg, tool
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
@@ -22,22 +20,21 @@ from deepinsight.core.types.research import (
     Summary,
 )
 from deepinsight.core.utils.utils import get_today_str
+from deepinsight.utils.tavily_manager import tavily_key_manager, TavilyBaseKeyManager, SingleKeyManager
 
 TAVILY_SEARCH_DESCRIPTION = (
     "A search engine optimized for comprehensive, accurate, and trusted results. "
     "Useful for when you need to answer questions about current events."
 )
 
-def get_tavily_api_key(config: RunnableConfig):
+def get_tavily_manager(config: RunnableConfig) -> TavilyBaseKeyManager:
     """Get Tavily API key from environment or config."""
     should_get_from_config = os.getenv("GET_API_KEYS_FROM_CONFIG", "false")
     if should_get_from_config.lower() == "true":
-        api_keys = config.get("configurable", {}).get("apiKeys", {})
-        if not api_keys:
-            return None
-        return api_keys.get("TAVILY_API_KEY")
+        api_key = config.get("configurable", {}).get("apiKeys", {}).get("TAVILY_API_KEY")
+        return SingleKeyManager(api_key)  # no available key will raise by its `__init__`
     else:
-        return os.getenv("TAVILY_API_KEY")
+        return tavily_key_manager()
 
 async def tavily_search_async(
         search_queries,
@@ -59,14 +56,14 @@ async def tavily_search_async(
         List of search result dictionaries from Tavily API
     """
     # Initialize the Tavily client with API key from config
-    tavily_client = AsyncTavilyClient(api_key=get_tavily_api_key(config))
+    tavily_tool = get_tavily_manager(config).tool()
+    tavily_tool.max_results = max_results
+    tavily_tool.include_raw_content = include_raw_content
 
     # Create search tasks for parallel execution
     search_tasks = [
-        tavily_client.search(
+        tavily_tool.search_async(
             query,
-            max_results=max_results,
-            include_raw_content=include_raw_content,
             topic=topic,
             include_favicon=True,
             search_depth="advanced",

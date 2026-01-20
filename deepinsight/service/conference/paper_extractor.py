@@ -25,7 +25,6 @@ from langchain_text_splitters import MarkdownHeaderTextSplitter
 from langchain_core.documents import Document
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import PromptTemplate
-from langchain_tavily import TavilySearch
 
 from deepinsight.config.config import Config
 from deepinsight.databases.connection import Database
@@ -48,6 +47,7 @@ from deepinsight.service.schemas.paper_extract import (
     PaperMeta,
 )
 from deepinsight.service.conference.ror import RORClient
+from deepinsight.utils.tavily_manager import tavily_key_manager
 from deepinsight.utils.trace_utils import tracepoint
 
 
@@ -520,7 +520,7 @@ class PaperExtractionService:
             return llm_meta
 
         try:
-            search_tool = TavilySearch()
+            search_tool = tavily_key_manager().tool()
             agent = create_agent(
                 model=chat_model,
                 tools=[search_tool],
