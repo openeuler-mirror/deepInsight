@@ -89,7 +89,7 @@ class ResearchConfig(BaseModel):
     run_id: Optional[str] = Field(default=None, description="Unique run identifier if present")
     thread_id: Optional[str] = Field(default=None, description="Thread identifier used to scope runs")
     # File system workspace
-    file_system: MemFileSystem  # = Field(default_factory=lambda: RootFileSystem({}, [], "/"))
+    file_system: MemFileSystem = Field(default_factory=RootFileSystem.from_empty)
 
     # LangChain models (see init_langchain_models_from_llm_config)
     models: Dict[str, BaseChatModel] = Field(

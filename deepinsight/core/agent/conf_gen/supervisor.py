@@ -298,16 +298,6 @@ async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
         import traceback
         traceback.print_exc()  # 打印堆栈信息
 
-    # # 2. 把内存文件写入到本地存储中
-    # # 获取当前脚本所在的绝对路径
-    # # 优先使用配置中的工作路径；若不存在则回退到当前工作目录
-    # work_root = getattr(rc, "work_root", None)
-    # if not work_root:
-    #     work_root = os.getcwd()
-    # output_path = os.path.join(work_root, "conference_report_result", rc.thread_id)
-    # if isinstance(rc.file_system, RootFileSystem):
-    #     logging.debug(f"begin write file from mem to disk")
-    #     rc.file_system.export_to_local_disk(output_path)
     state['conference_summary'] = rc.file_system.read(ConferenceFileNames.SUMMARY_MD)
 
     full_text = (

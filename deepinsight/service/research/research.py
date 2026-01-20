@@ -251,7 +251,7 @@ class ResearchService:
         - ragflow_authorization: Optional authorization token for RAG services
         - scene_type: 从请求中读取，选择对应的 graph
         """
-        disk_path = os.path.join(self.config.workspace.work_root, request.conversation_id)
+        disk_path = os.path.join(self.config.workspace.work_root, "conference_report_result", request.conversation_id)
         file_system = RootFileSystem.from_local_disk(disk_path)
         graph_config = self._build_graph_config(request, ragflow_authorization, file_system=file_system)
         adapter = StreamEventAdapter(

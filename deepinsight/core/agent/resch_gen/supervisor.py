@@ -31,7 +31,6 @@ from deepinsight.core.types.research import (
 )
 from deepinsight.core.utils.research_utils import parse_research_config, override_reducer, dict_merge_reducer
 from deepinsight.core.tools.best_paper_analysis import batch_analyze_papers
-from deepinsight.core.tools.file_system import MemoryMCPFilesystem
 from deepinsight.core.tools.keynote_analysis import batch_analyze_keynotes
 from deepinsight.core.utils.utils import get_today_str
 from deepinsight.core.utils.tool_utils import get_notes_from_tool_calls

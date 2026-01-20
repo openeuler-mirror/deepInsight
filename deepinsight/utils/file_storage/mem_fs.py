@@ -10,6 +10,8 @@ from deepagents.backends.protocol import BackendProtocol, EditResult, FileInfo, 
 from langchain_core.tools import tool, BaseTool
 import wcmatch.glob as wc_glob
 
+from deepinsight.utils.trace_utils import tracepoint
+
 
 DISK_DIR_MODE = 0o755
 
@@ -228,7 +230,7 @@ class RootFileSystem(MemFileSystem):
     @classmethod
     def from_local_disk(cls, real_dir: str,
                         root_prefix: str = "/") -> "RootFileSystem":
-        real_path = pathlib.Path(real_dir).resolve(strict=True)
+        real_path = pathlib.Path(real_dir).resolve(strict=False)
         if not real_path.exists():
             real_path.mkdir(mode=DISK_DIR_MODE, exist_ok=True)
         if not real_path.is_dir():
@@ -247,6 +249,7 @@ class RootFileSystem(MemFileSystem):
 
         return cls(file_lists, list(dirs), root_prefix)
 
+    @tracepoint("fs_ls", self=lambda root: root.trace_dump())
     def ls_info(self, path: str = "/") -> list[FileInfo]:
         with self.__lock:
             path = self.__norm_path(path, allow_root=True, check_exists=True)
@@ -261,12 +264,14 @@ class RootFileSystem(MemFileSystem):
                 if (dir_name != path) and dir_name.startswith(path) and ("/" not in dir_name[path_len:-1])
             ]
 
+    @tracepoint("fs_read_raw", self=lambda root: root.trace_dump())
     def read_raw(self, file_path: str) -> str | bytes:
         with self.__lock:
             path = self.__norm_path(file_path, allow_root=False, check_exists=True, must_be_file=True)
             content = self.__files[path]
             return content
 
+    @tracepoint("fs_grep", self=lambda root: root.trace_dump())
     def grep(self, pattern: str, path: str | None = None, glob: str | None = None) -> list[GrepMatch]:
         regex = re.compile(pattern)
         with self.__lock:
@@ -292,6 +297,7 @@ class RootFileSystem(MemFileSystem):
                 )
             return out
 
+    @tracepoint("fs_glob", self=lambda root: root.trace_dump())
     def glob(self, pattern: str, path: str = "/") -> list[FileInfo]:
         with self.__lock:
             path = self.__norm_path(path, allow_root=True, check_exists=True) if path else "/"
@@ -307,6 +313,7 @@ class RootFileSystem(MemFileSystem):
             ]
             return sorted(matches, key=lambda item: item["path"])
 
+    @tracepoint("fs_write", self=lambda root: root.trace_dump())
     def write(self, file_path: str, content: str | bytes, allow_overwrite: bool = False) -> None:
         with self.__lock:
             path = self.__norm_path(file_path, allow_root=False, check_exists=False)
@@ -319,6 +326,7 @@ class RootFileSystem(MemFileSystem):
             self.__files[path] = content
             self.__unchanged -= {path}
 
+    @tracepoint("fs_edit", self=lambda root: root.trace_dump())
     def edit(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False) -> int:
         with self.__lock:
             path = self.__norm_path(file_path, allow_root=False, check_exists=True, must_be_file=True)
@@ -402,8 +410,16 @@ class RootFileSystem(MemFileSystem):
         """Return a dict that match all files (metadata included) """
         raise NotImplementedError("Currently memfs can only be exported to local disk.")
 
+    def trace_dump(self):
+        with self.__lock:
+            return dict(
+                files={k: f"{type(content).__name__} (len={len(content)})" for k, content in self.__files.items()},
+                directories=sorted(self.__dirs),
+                root=self.__root_dir_name
+            )
+
     def _mkdir_no_lock(self, path: str) -> None:
-        path = self.__norm_path(path, allow_root=False, check_exists=False)
+        path = self.__norm_path(path, allow_root=True, check_exists=False)
         if path in self.__dirs:
             return
         if path in self.__files:
