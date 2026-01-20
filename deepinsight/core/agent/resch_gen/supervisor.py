@@ -31,7 +31,6 @@ from deepinsight.core.types.research import (
 )
 from deepinsight.core.utils.research_utils import parse_research_config, override_reducer, dict_merge_reducer
 from deepinsight.core.tools.best_paper_analysis import batch_analyze_papers
-from deepinsight.core.tools.file_system import MemoryMCPFilesystem
 from deepinsight.core.tools.keynote_analysis import batch_analyze_keynotes
 from deepinsight.core.utils.utils import get_today_str
 from deepinsight.core.utils.tool_utils import get_notes_from_tool_calls
@@ -355,7 +354,6 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
         Dictionary containing the final report and cleared state
     """
     # Step 1: Extract research findings and prepare state cleanup
-    fs_instance = MemoryMCPFilesystem()
     notes = state.get("notes", [])
     cleared_state = {"notes": {"type": "override", "value": []}}
     findings = "\n".join(notes)
@@ -368,6 +366,9 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     current_retry = 0
     findings_token_limit = None
     llm = rc.get_model()
+    # 必须提前创建好目录，大模型在使用过程中会查询目录存在不存在，不存在则报错
+    rc.file_system.make_dir(ConferenceFolderNames.BEST_PAPERS)
+    rc.file_system.make_dir(ConferenceFolderNames.KEYNOTES)
     while current_retry <= max_retries:
         try:
             # Create comprehensive prompt with all research context
@@ -388,13 +389,8 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                     reference_images=state.get("reference_images", ""),
                 )
             )
-
-            fs_instance = MemoryMCPFilesystem()
-            # 必须提前创建好目录，大模型在使用过程中会查询目录存在不存在，不存在则报错
-            fs_instance.create_folders(f"/{rc.run_id}",
-                                       [ConferenceFolderNames.BEST_PAPERS, ConferenceFolderNames.KEYNOTES])
             if is_keynotes_group(rc.prompt_group):
-                output_file = f"/{str(rc.run_id)}/{get_folder_name_for_prompt_group(rc.prompt_group)}"
+                output_file = f"/{get_folder_name_for_prompt_group(rc.prompt_group)}"
                 from langchain.agents import create_agent
                 logging.debug(f"final_report:{final_report}, output_file: {output_file}")
                 try:
@@ -418,13 +414,13 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                     import traceback
                     traceback.print_exc()  # 打印堆栈信息
 
-                keynotes_files_content_map = fs_instance.read_all_files_in_dir(output_file)
+                keynotes_files_content_map = rc.file_system.read_all(output_file)
                 keynotes_content = "\n".join(content for _, content in keynotes_files_content_map.items())
                 logging.debug(f"keynotes_content: {keynotes_content}")
                 final_report.content = keynotes_content
             elif is_best_papers_group(rc.prompt_group):
                 from langchain.agents import create_agent
-                output_file = f"/{str(rc.run_id)}/{get_folder_name_for_prompt_group(rc.prompt_group)}"
+                output_file = f"/{get_folder_name_for_prompt_group(rc.prompt_group)}"
                 agent = create_agent(
                     model=llm,
                     tools=[batch_analyze_papers]
@@ -433,27 +429,18 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                     {"messages": [{"role": "user",
                                    "content": f"论文集合相关信息如下，请批量对如下论文进行分析：/{final_report}, 论文保存路径：{output_file}"}]},
                 )
-                paper_files_content_map = fs_instance.read_all_files_in_dir(output_file)
+                paper_files_content_map = rc.file_system.read_all(output_file)
                 final_report.content = "\n\n".join(content for _, content in paper_files_content_map.items())
-
-                # output_dir = f"/{str(rc.run_id)}/"
-                # # Use configured work_root; fallback to current working directory
-                # work_root = getattr(rc, "work_root", None)
-                # if not work_root:
-                #     work_root = os.getcwd()
-                # output_path = os.path.join(work_root, "conference_report_result", rc.thread_id)
-                # fs_instance.export_to_real_fs(real_dir=output_path, folder_path=output_dir)
-
 
             # 根据 prompt_group 获取对应的文件名
             try:
                 md_filename = get_md_filename_for_prompt_group(rc.prompt_group)
-                output_file = f"/{str(rc.run_id)}/{md_filename}"
+                output_file = f"/{md_filename}"
             except ValueError:
                 # 如果 prompt_group 不生成 md 文件（如 best_papers），则使用 prompt_group 作为文件名
-                output_file = f"/{str(rc.run_id)}/{rc.prompt_group}.md"
+                output_file = f"/{rc.prompt_group}.md"
             # example: 如何将最终结果写入到临时文件
-            fs_instance.write_file(file_path=f"{output_file}", content=final_report.content)
+            rc.file_system.write(file_path=f"{output_file}", content=final_report.content)
 
             return {
                 "final_report": final_report.content,

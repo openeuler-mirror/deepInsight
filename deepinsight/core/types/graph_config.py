@@ -18,6 +18,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
 from deepinsight.core.prompt.prompt_manager import PromptManager
+from deepinsight.utils.file_storage.mem_fs import MemFileSystem, RootFileSystem
 
 class SearchAPI(str, Enum):
     """Enumeration of available search API providers."""
@@ -87,6 +88,8 @@ class ResearchConfig(BaseModel):
     # Identifiers optionally propagated into configurable
     run_id: Optional[str] = Field(default=None, description="Unique run identifier if present")
     thread_id: Optional[str] = Field(default=None, description="Thread identifier used to scope runs")
+    # File system workspace
+    file_system: MemFileSystem = Field(default_factory=RootFileSystem.from_empty)
 
     # LangChain models (see init_langchain_models_from_llm_config)
     models: Dict[str, BaseChatModel] = Field(

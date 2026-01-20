@@ -10,6 +10,5 @@
 
 from .conference import ConferenceService
 from .paper_extractor import PaperExtractionService
-from .cross_topic_analysis import CrossTopicAnalysisService
 
-__all__ = ["ConferenceService", "PaperExtractionService", "CrossTopicAnalysisService"]
+__all__ = ["ConferenceService", "PaperExtractionService"]

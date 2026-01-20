@@ -32,12 +32,12 @@ from deepinsight.core.types.research import ClarifyNeedUser, FinalResult
 
 from deepinsight.core.agent.resch_gen.supervisor import graph as deep_research_graph
 from deepinsight.core.agent.conf_gen.conf_stat_value_mining import conf_stat_graph
-from deepinsight.core.tools.file_system import register_fs_tools, fs_instance
 from deepinsight.core.types.conference_constants import (
     ConferencePromptGroup,
     ConferenceFolderNames,
     ConferenceFileNames,
 )
+from deepinsight.utils.file_storage.mem_fs import RootFileSystem, MemFileSystem
 from deepinsight.utils.tavily_manager import tavily_key_manager
 
 
@@ -157,7 +157,7 @@ async def wait_user_clarify_node(state: ConferenceState):
     }
 
 
-async def construct_sub_config(config, prompt_group: ConferenceGraphNodeType):
+async def construct_sub_config(config, prompt_group: ConferenceGraphNodeType, workdir="."):
     tools = []
     if prompt_group == ConferenceGraphNodeType.CONFERENCE_BEST_PAPER:
         tools.append(batch_analyze_papers)
@@ -177,8 +177,15 @@ async def construct_sub_config(config, prompt_group: ConferenceGraphNodeType):
             server_name="mcp-chart",
         )
         tools.extend(chart_tools)
+    configurable = config.get("configurable", {})
+    file_system_dict = dict()
+    if workdir != ".":
+        file_system = configurable.get("file_system")
+        if isinstance(file_system, MemFileSystem):
+            file_system_dict["file_system"] = file_system.child(workdir)
     return {
-        **config.get("configurable", {}),
+        **configurable,
+        **file_system_dict,
         "prompt_group": prompt_group,
         "allow_user_clarification": False,
         "allow_edit_research_brief": False,
@@ -202,7 +209,8 @@ async def conference_overview_node(state: ConferenceState, config: RunnableConfi
 @progress_stage("会议统计分析")
 async def conference_submission_node(state: ConferenceState, config: RunnableConfig):
     result = await conf_stat_graph.with_config(
-        configurable=await construct_sub_config(config, ConferenceGraphNodeType.CONFERENCE_SUBMISSION)
+        configurable=await construct_sub_config(config, ConferenceGraphNodeType.CONFERENCE_SUBMISSION,
+                                                workdir=ConferenceFolderNames.VALUE_MINING)
     ).ainvoke({
         "messages": state["messages"]
     })
@@ -240,8 +248,7 @@ async def conference_best_paper_node(state: ConferenceState, config: RunnableCon
         "messages": state["messages"]
     })
     rc = parse_research_config(config)
-    output_file = f"/{str(rc.run_id)}/{ConferenceFolderNames.BEST_PAPERS}"
-    paper_files_content_map = fs_instance.read_all_files_in_dir(output_file)
+    paper_files_content_map = rc.file_system.read_all(ConferenceFolderNames.BEST_PAPERS)
     paper_file_content = "\n".join(content for _, content in paper_files_content_map.items())
     return {
         "conference_best_papers_summary": result["final_report"],
@@ -256,11 +263,10 @@ async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
         name=ConferenceGraphNodeType.INSIGHT_SUMMARY,
         group=rc.prompt_group,
     ).format()
-    output_file = f"/{str(rc.run_id)}/{ConferenceFileNames.SUMMARY_MD}"
+    output_file = f"/{ConferenceFileNames.SUMMARY_MD}"
     logging.debug(
         f"conference_best_papers_summary:{state.get('conference_best_papers_summary', '')}, conference_topic:{state.get('conference_topic', '')}")
     user_prompt = f"学术会议价值论文列表：{state.get('conference_best_papers_summary', '')},会议主题相关信息：{state.get('conference_topic', '')},保存到路径：{output_file} "
-    tools = register_fs_tools(fs_instance)
     tool_instance = tavily_key_manager().tool(
         max_results=2,
         topic="general",
@@ -270,7 +276,7 @@ async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
         include_image_descriptions=True,
         search_depth="advanced",
     )
-    tools.append(tool_instance)
+    tools = [tool_instance]
 
     logging.debug(f"begin execute summary deep agent")
     # Create the deep agent
@@ -278,6 +284,7 @@ async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
         model=model,
         tools=tools,
         system_prompt=summary_prompt,
+        backend=rc.file_system.deep_agent_backend()
     )
 
     try:
@@ -291,18 +298,7 @@ async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
         import traceback
         traceback.print_exc()  # 打印堆栈信息
 
-    # 2. 把内存文件写入到本地存储中
-    # 获取当前脚本所在的绝对路径
-    logging.debug(f" begin write file from mem to disk")
-    thread_id = rc.thread_id
-    # 优先使用配置中的工作路径；若不存在则回退到当前工作目录
-    work_root = getattr(rc, "work_root", None)
-    if not work_root:
-        work_root = os.getcwd()
-    output_path = os.path.join(work_root, "conference_report_result", thread_id)
-    output_dir = f"/{str(rc.run_id)}/"
-    fs_instance.export_to_real_fs(real_dir=output_path, folder_path=output_dir)
-    state['conference_summary'] = fs_instance.read_file(f"{output_dir}/{ConferenceFileNames.SUMMARY_MD}")
+    state['conference_summary'] = rc.file_system.read(ConferenceFileNames.SUMMARY_MD)
 
     full_text = (
             state.get('conference_overview', '') + '\n\n\n' +

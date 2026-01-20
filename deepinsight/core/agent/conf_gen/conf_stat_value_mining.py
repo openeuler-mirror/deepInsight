@@ -15,7 +15,6 @@ from langgraph.constants import END
 from langgraph.graph import add_messages, StateGraph
 from langgraph.types import Command
 
-from deepinsight.core.tools.mem_file_system import mem_file_system_instance
 from deepinsight.core.tools.wordcloud_tool import generate_wordcloud
 from deepinsight.core.types.conference_constants import ConferenceFolderNames
 from deepinsight.core.utils.progress_utils import progress_stage
@@ -60,7 +59,7 @@ async def get_deep_agents(config: RunnableConfig, prompt_template_name, extent_t
         model=llm_model,
         tools=tools,
         system_prompt=system_prompt,
-        backend=mem_file_system_instance,
+        backend=rc.file_system.deep_agent_backend(),
         middleware=[ModelFallbackMiddleware(llm_model, llm_model)]
     )
     return agent
@@ -115,7 +114,7 @@ async def start_node(state: ConferenceStaticState, config: RunnableConfig):
 @progress_stage("技术主题分析")
 async def tech_topics_node(state: ConferenceStaticState, config: RunnableConfig):
     rc = parse_research_config(config)
-    output_file = f"/{str(rc.run_id)}/tech_topics.md"
+    output_file = "/tech_topics.md"
     agent_instance = await get_deep_agents(config=config, prompt_template_name="tech_topics_prompt",
                                            prompt_vars={"output_file": output_file})
     input_messages = [
@@ -132,16 +131,16 @@ async def tech_topics_node(state: ConferenceStaticState, config: RunnableConfig)
         logging.exception("Exception details:")
         # Optionally, log the stack trace to provide more details
         raise  # Reraise the exception to handle it further up the call chain if necessary
-    if not mem_file_system_instance.exists(output_file):
+    if not rc.file_system.is_file(output_file):
         logging.error(f"get tech_topics failed, origin question:{state['origin_question']}")
         return {"tech_topics": ""}
-    return {"tech_topics": mem_file_system_instance.read(output_file)}
+    return {"tech_topics": rc.file_system.read(output_file)}
 
 
 @progress_stage("研究热点分析")
 async def research_hotspots_node(state: ConferenceStaticState, config: RunnableConfig):
     rc = parse_research_config(config)
-    output_file = f"/{str(rc.run_id)}/research_hotspots.md"
+    output_file = "/research_hotspots.md"
     agent_instance = await get_deep_agents(config=config, prompt_template_name="research_hotspots_prompt",
                                            extent_tools=[generate_wordcloud], prompt_vars={"output_file": output_file})
     input_messages = [
@@ -158,18 +157,18 @@ async def research_hotspots_node(state: ConferenceStaticState, config: RunnableC
         logging.exception("Exception details:")
         # Optionally, log the stack trace to provide more details
         raise  # Reraise the exception to handle it further up the call chain if necessary
-    if not mem_file_system_instance.exists(output_file):
+    if not rc.file_system.is_file(output_file):
         logging.error(f"get research_hotspots failed, origin question:{state['origin_question']}")
         return {"research_hotspots": ""}
     return {
-        "research_hotspots": mem_file_system_instance.read(output_file)
+        "research_hotspots": rc.file_system.read(output_file)
     }
 
 
 @progress_stage("国家/地区技术特征分析")
 async def national_tech_profile_node(state: ConferenceStaticState, config: RunnableConfig):
     rc = parse_research_config(config)
-    output_file = f"/{str(rc.run_id)}/national_tech_profile.md"
+    output_file = f"/national_tech_profile.md"
     agent_instance = await get_deep_agents(config=config, prompt_template_name="national_tech_profile_prompt",
                                            prompt_vars={"output_file": output_file})
 
@@ -187,18 +186,18 @@ async def national_tech_profile_node(state: ConferenceStaticState, config: Runna
         logging.exception("Exception details:")
         # Optionally, log the stack trace to provide more details
         raise  # Reraise the exception to handle it further up the call chain if necessary
-    if not mem_file_system_instance.exists(output_file):
+    if not rc.file_system.is_file(output_file):
         logging.error(f"get national_tech_profile failed, origin question:{state['origin_question']}")
         return {"national_tech_profile": ""}
     return {
-        "national_tech_profile": mem_file_system_instance.read(output_file)
+        "national_tech_profile": rc.file_system.read(output_file)
     }
 
 
 @progress_stage("机构技术特征分析")
 async def institution_overview_node(state: ConferenceStaticState, config: RunnableConfig):
     rc = parse_research_config(config)
-    output_file = f"/{str(rc.run_id)}/institution_overview.md"
+    output_file = "/institution_overview.md"
     agent_instance = await get_deep_agents(config=config, prompt_template_name="institution_overview_prompt",
                                            prompt_vars={"output_file": output_file})
 
@@ -217,18 +216,18 @@ async def institution_overview_node(state: ConferenceStaticState, config: Runnab
         logging.exception("Exception details:")
         # Optionally, log the stack trace to provide more details
         raise  # Reraise the exception to handle it further up the call chain if necessary
-    if not mem_file_system_instance.exists(output_file):
+    if not rc.file_system.is_file(output_file):
         logging.error(f"get institution_overview failed, origin question:{state['origin_question']}")
         return {"institution_overview": ""}
     return {
-        "institution_overview": mem_file_system_instance.read(output_file)
+        "institution_overview": rc.file_system.read(output_file)
     }
 
 
 @progress_stage("跨机构合作网络分析")
 async def inter_institution_collab_node(state: ConferenceStaticState, config: RunnableConfig):
     rc = parse_research_config(config)
-    output_file = f"/{str(rc.run_id)}/inter_institution_collab.md"
+    output_file = f"/inter_institution_collab.md"
     agent_instance = await get_deep_agents(config=config, prompt_template_name="inter_institution_collab_prompt",
                                            prompt_vars={"output_file": output_file})
     input_messages = [
@@ -245,18 +244,18 @@ async def inter_institution_collab_node(state: ConferenceStaticState, config: Ru
         logging.exception("Exception details:")
         # Optionally, log the stack trace to provide more details
         raise  # Reraise the exception to handle it further up the call chain if necessary
-    if not mem_file_system_instance.exists(output_file):
+    if not rc.file_system.is_file(output_file):
         logging.error(f"get inter_institution_collab failed, origin question:{state['origin_question']}")
         return {"inter_institution_collab": ""}
     return {
-        "inter_institution_collab": mem_file_system_instance.read(output_file)
+        "inter_institution_collab": rc.file_system.read(output_file)
     }
 
 
 @progress_stage("高潜作者转化分析")
 async def high_potential_tech_transfer_node(state: ConferenceStaticState, config: RunnableConfig):
     rc = parse_research_config(config)
-    output_file = f"/{str(rc.run_id)}/high_potential_tech_transfer.md"
+    output_file = "/high_potential_tech_transfer.md"
     agent_instance = await get_deep_agents(config=config, prompt_template_name="high_potential_tech_transfer_prompt",
                                            prompt_vars={"output_file": output_file})
     input_messages = [
@@ -273,17 +272,17 @@ async def high_potential_tech_transfer_node(state: ConferenceStaticState, config
         logging.exception("Exception details:")
         # Optionally, log the stack trace to provide more details
         raise  # Reraise the exception to handle it further up the call chain if necessary
-    if not mem_file_system_instance.exists(output_file):
+    if not rc.file_system.is_file(output_file):
         logging.error(f"get high_potential_tech failed, origin question:{state['origin_question']}")
         return {"high_potential_tech_transfer": ""}
     return {
-        "high_potential_tech_transfer": mem_file_system_instance.read(output_file)
+        "high_potential_tech_transfer": rc.file_system.read(output_file)
     }
 
 @progress_stage("学术带头人分析")
 async def academic_leaders_node(state: ConferenceStaticState, config: RunnableConfig):
     rc = parse_research_config(config)
-    output_file = f"/{str(rc.run_id)}/academic_leaders.md"
+    output_file = "/academic_leaders.md"
     agent_instance = await get_deep_agents(config=config, prompt_template_name="academic_leaders_prompt",
                                            prompt_vars={"output_file": output_file})
     input_messages = [
@@ -300,28 +299,16 @@ async def academic_leaders_node(state: ConferenceStaticState, config: RunnableCo
         logging.exception("Exception details:")
         # Optionally, log the stack trace to provide more details
         raise  # Reraise the exception to handle it further up the call chain if necessary
-    if not mem_file_system_instance.exists(output_file):
+    if not rc.file_system.is_file(output_file):
         logging.error(f"get academic_leaders failed, origin question:{state['origin_question']}")
         return {"high_potential_tech_transfer": ""}
     return {
-        "high_potential_tech_transfer": mem_file_system_instance.read(output_file)
+        "high_potential_tech_transfer": rc.file_system.read(output_file)
     }
 
 
 async def static_summary_node(state: ConferenceStaticState, config: RunnableConfig):
-    logging.info(f" begin write file from mem to disk")
-
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    # 构造相对项目根目录的路径
-    # 假设当前脚本在项目根目录或子目录下
-    rc = parse_research_config(config)
-    work_root = getattr(rc, "work_root", None)
-    if not work_root:
-        work_root = os.getcwd()
-    output_path = os.path.join(work_root, "conference_report_result", rc.thread_id, ConferenceFolderNames.VALUE_MINING)
-    output_dir = f"/{str(rc.run_id)}/"
-    logging.info(f"static_summary_node output_path:{output_path}, output_path:{output_dir}")
-    mem_file_system_instance.sync_with_real_fs(real_dir=output_path, folder_path=output_dir)
+    _ = parse_research_config(config)
 
     summary_parts = []
     if state.get('tech_topics'):

@@ -480,39 +480,34 @@ async def cross_topic_team_node(state: SupervisorState, config: RunnableConfig) 
                 # 尝试读取生成的 PDF 对应的 Markdown 文件
                 # 或者从各个组件文件组装
                 try:
-                    import os
                     from deepinsight.core.types.conference_constants import (
                         ConferenceFileNames,
                         ConferenceFolderNames,
                     )
                     
-                    statistics_path = os.path.join(output_path, ConferenceFileNames.CROSS_TOPIC_STATISTICS_MD)
-                    summary_path = os.path.join(output_path, ConferenceFileNames.CROSS_TOPIC_SUMMARY_MD)
-                    papers_dir = os.path.join(output_path, ConferenceFolderNames.CROSS_TOPIC_PAPERS)
-                    papers_list_path = os.path.join(output_path, "papers_list.md")
-                    
+                    statistics_path = ConferenceFileNames.CROSS_TOPIC_STATISTICS_MD
+                    summary_path = ConferenceFileNames.CROSS_TOPIC_SUMMARY_MD
+                    papers_dir = ConferenceFolderNames.CROSS_TOPIC_PAPERS
+                    papers_list_path = "papers_list.md"
+
                     parts = []
-                    if os.path.exists(statistics_path):
-                        with open(statistics_path, 'r', encoding='utf-8') as f:
-                            parts.append(f"# 统计信息\n\n{f.read()}")
+                    if rc.file_system.is_file(statistics_path):
+                        parts.append(f"# 统计信息\n\n{rc.file_system.read(statistics_path)}")
                     
-                    if os.path.exists(papers_dir):
-                        paper_files = sorted([f for f in os.listdir(papers_dir) if f.endswith(".md")])
+                    if rc.file_system.is_dir(papers_dir):
+                        paper_files = sorted([(name, content) for name, content in rc.file_system.read_all(papers_dir)
+                                              if name.endswith(".md")])
                         if paper_files:
                             parts.append("\n\n# 论文分析\n\n")
-                            for paper_file in paper_files:
-                                paper_path = os.path.join(papers_dir, paper_file)
-                                with open(paper_path, 'r', encoding='utf-8') as f:
-                                    parts.append(f.read())
-                                    parts.append("\n\n---\n\n")
+                            for _, content in paper_files:
+                                parts.append(content)
+                                parts.append("\n\n---\n\n")
                     
-                    if os.path.exists(summary_path):
-                        with open(summary_path, 'r', encoding='utf-8') as f:
-                            parts.append(f"# 总结\n\n{f.read()}")
+                    if rc.file_system.is_file(summary_path):
+                        parts.append(f"# 总结\n\n{rc.file_system.read(summary_path)}")
                     
-                    if os.path.exists(papers_list_path):
-                        with open(papers_list_path, 'r', encoding='utf-8') as f:
-                            parts.append(f"\n\n# 论文列表\n\n{f.read()}")
+                    if rc.file_system.is_file(papers_list_path):
+                        parts.append(f"\n\n# 论文列表\n\n{rc.file_system.read(papers_list_path)}")
                     
                     if parts:
                         from datetime import datetime
