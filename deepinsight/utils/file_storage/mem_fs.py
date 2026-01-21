@@ -4,11 +4,13 @@ import re
 import threading
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
-from typing import Any, Literal
+from typing import Any, Literal, Type
 
 from deepagents.backends.protocol import BackendProtocol, EditResult, FileInfo, GrepMatch, WriteResult
 from langchain_core.tools import tool, BaseTool
 import wcmatch.glob as wc_glob
+from pydantic import BaseModel, create_model, field_validator
+from pydantic_core import ValidationError
 
 from deepinsight.utils.trace_utils import tracepoint
 
@@ -25,8 +27,29 @@ class DeepAgentsBackend(BackendProtocol):
     def __init__(self, fs: "MemFileSystem"):
         self.__fs = fs
 
+    @staticmethod
+    def _forward_exception(attr_name: Literal["path", "file_path", "patten"],
+                           value: Any, e: Exception) -> AssertionError | ValidationError:
+        @field_validator(attr_name)
+        def validator(cls, v):
+            _ = cls, v
+            raise ValueError(f"{type(e).__name__}: {e}")
+
+        cls_name = attr_name.capitalize()
+        model: Type[BaseModel] = create_model(cls_name, __validators__={"validator": validator}, **{attr_name: str})
+        try:
+            model(**{attr_name: value})
+        except ValidationError as pydantic_exc:
+            return pydantic_exc
+        logging.error("Assertion failed: want an error raised by pydantic but not.", stack_info=True)
+        return AssertionError("If you see this exception, make an issue to DeepInsight.")
+
     def ls_info(self, path: str) -> list[FileInfo]:
-        return self.__fs.ls_info(path)
+        try:
+            return self.__fs.ls_info(path)
+        except (NotADirectoryError, PermissionError, FileNotFoundError) as e:
+            logging.warning(f"Agent tried to list files of {path} failed with {type(e).__name__}: {e}", exc_info=True)
+            raise self._forward_exception("path", path, e) from e
 
     def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> str:
         """`offset` and `limit` is line number."""
@@ -44,7 +67,10 @@ class DeepAgentsBackend(BackendProtocol):
             return f"{type(e).__name__}: {e}"
 
     def glob_info(self, pattern: str, path: str = "/") -> list[FileInfo]:
-        return self.__fs.glob(pattern, path)
+        try:
+            return self.__fs.glob(pattern, path)
+        except (NotADirectoryError, PermissionError, FileNotFoundError) as e:
+            raise self._forward_exception("path", path, e) from e
 
     def write(self, file_path: str, content: str) -> WriteResult:
         try:
