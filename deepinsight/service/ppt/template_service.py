@@ -39,6 +39,7 @@ SLIDE_INDEX_MAP = {
     "topic_detail_page": 13,
     "valuable_paper_page": 14,
     "conf_summary_page": 15,
+    "end_page": 16,
 }
 
 TABLE_DEFAULT_STYLE={
@@ -268,13 +269,13 @@ class PPTTemplateService:
             list_json = json.load(f)
         return self.fill_from_json(template_path, list_json, output_name=output_name)
 
-    def fill_from_json(self, template_path: str, list_json: Dict[str, Any], output_name: str | None = None) -> Presentation:
+    def fill_from_json(self, template_path: str, list_json: list[dict[str, Any]], output_name: str | None = None) -> Presentation:
         """
         使用内存中的 JSON 数据填充 PPT 模板。
 
         Args:
             template_path: PPT 模板文件路径 (.pptx)
-            data: 用于填充的字典数据
+            list_json: 用于填充的字典数据
             output_name: 输出文件名（可选），默认 `result.pptx`
 
         Returns:
@@ -286,7 +287,7 @@ class PPTTemplateService:
         pres = Presentation(template_path)
         original_count = len(pres.slides)
 
-        for item in list_json:
+        for item in list_json + [dict(type="end_page", skip_fill=True)]:
             t = item.get("type")
             content = item.get("content")
             skip_fill = item.get("skip_fill", False)
