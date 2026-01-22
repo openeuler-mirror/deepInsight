@@ -309,7 +309,7 @@ class RootFileSystem(MemFileSystem):
     def grep(self, pattern: str, path: str | None = None, glob: str | None = None) -> list[GrepMatch]:
         regex = re.compile(pattern)
         with self.__lock:
-            path = self.__norm_path(path, allow_root=True, check_exists=True)
+            path = self.__norm_path(path or "/", allow_root=True, check_exists=True)
             if not path.endswith("/"):
                 raise NotADirectoryError(path)
             filtered = [name for name in self.__files if name.startswith(path)]
