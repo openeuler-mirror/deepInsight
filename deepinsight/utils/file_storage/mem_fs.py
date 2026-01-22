@@ -153,7 +153,7 @@ class MemFileSystem(ABC):
 
     def tools(self, ls: bool = True, read: bool = True, write: bool = True,
               edit: bool = False, grep: bool = False, glob: bool = False) -> list[BaseTool]:
-        @tool("write_file", return_direct=True)
+        @tool("write_file")
         def write_file_tool(file_path: str, content: str) -> str:
             """
             Write content to a file in the OS filesystem.
@@ -176,12 +176,16 @@ class MemFileSystem(ABC):
                 logging.error(f"Agent tool write to {file_path!r} failed with {type(e).__name__}: {e}", exc_info=True)
                 return f"Write failed with {type(e).__name__}: {e}"
 
-        @tool("read_file", return_direct=True)
+        @tool("read_file")
         def read_file_tool(file_path: str) -> str:
             """Read the contents of a file."""
-            return self.read(file_path)
+            try:
+                return self.read(file_path)
+            except Exception as e:
+                logging.error(f"Agent tool read from {file_path!r} failed with {type(e).__name__}: {e}", exc_info=True)
+                return f"Read failed with {type(e).__name__}: {e}"
 
-        @tool("list_directory", return_direct=True)
+        @tool("list_directory")
         def list_directory_tool(path: str) -> str:
             """
             List files and directories under a given path, returning a tree-like structure.
@@ -196,7 +200,11 @@ class MemFileSystem(ABC):
             - str: A string representing the directory tree, with directories shown without extensions
               and files shown with their extensions.
             """
-            return "\n".join(obj["path"] for obj in self.ls_info(path))
+            try:
+                return "\n".join(obj["path"] for obj in self.ls_info(path))
+            except Exception as e:
+                logging.error(f"Agent tool list {path!r} failed with {type(e).__name__}: {e}", exc_info=True)
+                return f"List directory failed with {type(e).__name__}: {e}"
 
         tools = []
         if ls:
