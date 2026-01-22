@@ -5,17 +5,13 @@ import json
 import logging
 import os
 from pathlib import PurePosixPath
-from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict, Union, get_args, get_origin, Callable, Type
-from pydantic import BaseModel, Field
+from typing import Awaitable, Any, Dict, List, Optional, TypedDict, Union, get_args, get_origin, Callable, Type, TypeVar
 
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field, ValidationError
+from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.config import get_stream_writer
 from langgraph.constants import END
 from langgraph.graph import StateGraph
 
@@ -29,6 +25,7 @@ from deepinsight.core.types.conference_constants import (
 
 DEFAULT_LIST_STYLE_DESC = "\n当输出多条内容时，采用markdown列表格式，先给出小标题，再给出内容，示例如下\n  * **你的小标题**: 具体内容\n* **小标题2**: 具体内容\n"
 CONFERENCE_OVERVIEW_EXAMPLE = "以ICML为例: ICML以推动机器学习理论与应用的前沿研究为核心目标，涵盖监督学习、无监督学习、强化学习、生成式AI、多模态学习等基础领域，以及医疗、自动驾驶、气候变化等跨学科应用。作为机器学习领域的 旗舰会议，其论文质量和学术影响力被广泛认可，与NeurIPS、ICLR并称为全球三大机器学习顶会。"
+_Model = TypeVar("_Model")
 
 
 # ========= 路径归一化工具 =========
@@ -453,7 +450,7 @@ class TopicContentPageContent(BaseModel):
     topic_content_csv: Optional[TableContent] = Field(None,
                                                       description=f"""
 会议技术专题，表头包含专题方向和相关论文及摘要，内容见技术方向总览相关部分，长度600-800，
-csv的每个单元格都必须用双引号包裹（包括数字）,单元格里面不同论文及其摘要需要使用换行符分开，
+使用Markdown GFM表格格式,单元格里面不同论文及其摘要需要使用HTML的`<br>`标签作为换行标记分开，
 单个专题对应论文及其摘要示例：
 
 - 论文1：论文1摘要
@@ -799,14 +796,60 @@ def generate_json_template(model_cls: type) -> str:
     return json.dumps(template, indent=2, ensure_ascii=False)
 
 
+async def _generate_call_with_retry(prompt_name: str, output_cls: Type[_Model], page_name: str,
+                                    rc: ResearchConfig, md_content: str,
+                                    attr_name: str = None) -> _Model | None:
+    """
+    If `attr_name` is not `None`, will retry if `getattr(output, attr_name)` equals to False.
+    `md_content` should be checked none-empty before call this function.
+    """
+    prompt = rc.prompt_manager.get_prompt(name=prompt_name, group=rc.prompt_group).format(
+        response_format=generate_json_template(output_cls),
+    )
+    agent = create_agent(
+        model=rc.default_model,
+        system_prompt=prompt,
+        tools=[download_file_from_url],
+        response_format=ToolStrategy(output_cls)
+    )
+
+    max_retry = 3
+    for not_last_retry in range(max_retry - 1, -1, -1):  # not_last_retry == 0 means this loop is the last retry
+        try:
+            response = await agent.with_retry().ainvoke(input=dict(messages=[HumanMessage(content=md_content)]))
+        except Exception as e:
+            if not_last_retry:
+                logging.warning(f"Failed to invoke agent while generating page content json of {page_name} with "
+                                f"{type(e).__name__} and will retry later: {e}", exc_info=True)
+                continue
+            logging.error(f"Failed to invoke agent while generating page content json of {page_name} with "
+                          f"{type(e).__name__} for too many times (retried for {max_retry} times) and will skip "
+                          f"this page: {e}", exc_info=True)
+            break
+        structured_response: Optional[_Model] = response.get("structured_response")
+        if attr_name and structured_response:
+            has_output = getattr(structured_response, attr_name)
+        else:
+            has_output = structured_response
+        if has_output:
+            return structured_response
+
+        if not_last_retry:
+            logging.warning(f"LLM generated empty structured_response for {page_name} and will retry later.")
+            continue
+        logging.error(f"LLM generated empty structured_response for {page_name} for too many times (retried for"
+                      f" {max_retry} times) and will skip this page.")
+        break
+    return None
+
+
 def make_generate_page(
     page_content_cls: Type[BaseModel],
     page_model_cls: Type[BaseModel],
     md_filename: str,
     return_key: str,
     prompt_name: str = "default",
-    tools: list = None,
-) -> Callable[[object, object], object]:
+) -> Callable[[PPTState, RunnableConfig], Awaitable[dict]]:
     """
     生成一个异步 page 生成函数的闭包。
     参数：
@@ -820,87 +863,27 @@ def make_generate_page(
     返回：
       - 一个 async 函数 (state: PPTState, config: RunnableConfig) -> dict | None
     """
-    if tools is None:
-        tools = [download_file_from_url]
 
     async def _generate(state: "PPTState", config: "RunnableConfig"):
         md_content = state["sections"].get(md_filename, "")
         if not md_content:
             logging.warning(f"Source markdown {md_filename!r} is empty for {return_key}")
-            return
+            return {}
 
         rc = parse_research_config(config)
-        prompt = rc.prompt_manager.get_prompt(
-            name=prompt_name, 
-            group=rc.prompt_group
-        ).format(
-            response_format=generate_json_template(page_content_cls),
-        )
-
-        llm = rc.get_model()
-        agent = create_agent(
-            model=llm,
-            system_prompt=prompt,
-            tools=tools,
-            response_format=page_content_cls
-        )
-
+        page_content = await _generate_call_with_retry(prompt_name, page_content_cls, return_key, rc, md_content)
+        if not page_content:
+            return {}
         try:
-            response = await agent.with_retry().ainvoke(
-                input=dict(messages=[HumanMessage(content=md_content)])
-            )
-        except Exception as e:
-            logging.exception(f"Error invoking agent for {return_key}: {e}")
-            return
-
-        structured_response = response.get("structured_response")
-        if not structured_response:
-            logging.warning(f"LLM generated empty structured_response for {return_key}")
-            return
-
-        # page_model_cls 期望形如 TechThemePage(content=structured_response)
-        try:
-            page_obj = page_model_cls(content=structured_response)
-        except Exception as e:
-            # 兼容一些 Page 类可能需要额外字段的情况
-            logging.exception(f"Failed to construct page model for {return_key}: {e}")
-            return
+            page_obj = page_model_cls(content=page_content)
+        except ValidationError as e:
+            logging.exception(f"Assertion error when constructing page {return_key!r}. If you see this message, "
+                              f"make an Issue to DeepInsight: {e}")
+            return {}
 
         return {return_key: page_obj}
 
     return _generate
-
-
-async def generate_overview_page(state: PPTState, config: RunnableConfig):
-    md_content = state["sections"].get(ConferenceFileNames.OVERVIEW_MD, "")
-    if not md_content:
-        logging.warning(f"Overview page is empty")
-        return
-    rc = parse_research_config(config)
-    prompt = rc.prompt_manager.get_prompt("default", rc.prompt_group).format(
-        response_format=generate_json_template(ConfOverviewPageContent),
-    )
-    llm = rc.default_model
-    agent = create_agent(
-        model=llm,
-        system_prompt=prompt,
-        tools=[download_file_from_url],
-        response_format=ToolStrategy(ConfOverviewPageContent)
-    )
-    response = await agent.with_retry().ainvoke(
-        input=dict(
-            messages=[HumanMessage(content=state["sections"].get(ConferenceFileNames.OVERVIEW_MD, ""))]
-        )
-    )
-    structured_response = response.get("structured_response")
-    if not structured_response:
-        logging.warning(f"LLM generate overriew response is empty")
-        return
-    return dict(
-        overview_json=ConfOverviewPage(
-            content=structured_response
-        )
-    )
 
 
 async def generate_keynotes_page(state: PPTState, config: RunnableConfig):
@@ -913,36 +896,26 @@ async def generate_keynotes_page(state: PPTState, config: RunnableConfig):
     if len(keynotes) < origin_len:
         logging.warning(f"{origin_len - len(keynotes)} keynotes page are empty: No content in origin report.")
     rc = parse_research_config(config)
-    prompt = rc.prompt_manager.get_prompt("keynote", rc.prompt_group).format(
-        response_format=generate_json_template(KeynotePageContentList),
-    )
-    llm = rc.default_model
-    agent = create_agent(
-        model=llm,
-        system_prompt=prompt,   
-        tools=[download_file_from_url],
-        response_format=ToolStrategy(KeynotePageContentList)
-    )
-    raw_responses: list[dict] = await asyncio.gather(
+    raw_responses: list[KeynotePageContentList | None] = await asyncio.gather(
         *[
-            agent.with_retry().ainvoke(input=dict(messages=[HumanMessage(content=keynote)]))
-            for keynote in keynotes
+            _generate_call_with_retry("keynote", KeynotePageContentList, f"keynote {index}",
+                                      rc, keynote, "items")
+            for index, keynote in enumerate(keynotes, 1)
         ]
     )
     keynote_json_list: list[KeynotePageContent] = []
     empty_count = 0
     for raw_response in raw_responses:
-        structured_response: Optional[KeynotePageContentList] = raw_response.get("structured_response")
-        if not structured_response or not structured_response.items:
+        if not raw_response:
             empty_count += 1
             continue
-        keynote_json_list.extend(structured_response.items)
+        keynote_json_list.extend(raw_response.items)
 
     if not keynote_json_list:
         logging.warning(f"All LLM generate keynote section responses are empty")
         return {}
     if empty_count:
-        logging.warning(f"LLM generate keynote failed with an empty result for {empty_count} keynote sesctions.")
+        logging.warning(f"LLM generate keynote failed with an empty result for {empty_count} keynote sections.")
     return dict(
         keynote_json=[
             KeynotePage(
@@ -952,68 +925,21 @@ async def generate_keynotes_page(state: PPTState, config: RunnableConfig):
     )
 
 
-async def generate_topic_content_page(state: PPTState, config: RunnableConfig):
-    md_content = state["sections"].get(ConferenceFileNames.TOPIC_MD, "")
-    if not md_content:
-        logging.warning(f"Topic content page is empty")
-        return
-    rc = parse_research_config(config)
-    prompt = rc.prompt_manager.get_prompt("default", rc.prompt_group).format(
-        response_format=generate_json_template(TopicContentPageContent),
-    )
-    llm = rc.default_model
-    agent = create_agent(
-        model=llm,
-        system_prompt=prompt,   
-        tools=[download_file_from_url],
-        response_format=ToolStrategy(TopicContentPageContent)
-    )
-    response = await agent.with_retry().ainvoke(
-        input=dict(
-            messages=[HumanMessage(content=state["sections"].get(ConferenceFileNames.TOPIC_MD, ""))]
-        )
-    )
-    structured_response: Optional[TopicContentPageContent] = response.get("structured_response")
-    if not structured_response:
-        logging.warning(f"LLM generate topic content response is empty")
-        return
-    return dict(
-        topic_content_json=TopicContentPage(
-            content=structured_response
-        )
-    )
-
-
 async def generate_topic_details_page(state: PPTState, config: RunnableConfig):
     md_content = state["sections"].get(ConferenceFileNames.TOPIC_MD, "")
     if not md_content:
         logging.warning(f"Topic details page is empty")
-        return
+        return {}
     rc = parse_research_config(config)
-    prompt = rc.prompt_manager.get_prompt("topic_detail", rc.prompt_group).format(
-        response_format=generate_json_template(TopicDetailPageContentList),
-    )
-    llm = rc.default_model
-    agent = create_agent(
-        model=llm,
-        system_prompt=prompt,   
-        tools=[download_file_from_url],
-        response_format=ToolStrategy(TopicDetailPageContentList)
-    )
-    response = await agent.with_retry().ainvoke(
-        input=dict(
-            messages=[HumanMessage(content=state["sections"].get(ConferenceFileNames.TOPIC_MD, ""))]
-        )
-    )
-    structured_response: Optional[TopicDetailPageContentList] = response.get("structured_response")
-    if not structured_response:
-        logging.warning(f"LLM generate topic details response is empty")
-        return
+    topics = await _generate_call_with_retry("topic_detail", TopicDetailPageContentList,
+                                             page_name="topic_detail", rc=rc, md_content=md_content, attr_name="items")
+    if not topics:
+        return {}
     return dict(
         topic_details_json=[
             TopicDetailPage(
                 content=each
-            ) for each in structured_response.items
+            ) for each in topics.items
         ]
     )
 
@@ -1026,69 +952,13 @@ async def generate_best_papers_page(state: PPTState, config: RunnableConfig):
             best_papers_json=[]
         )
     rc = parse_research_config(config)
-    prompt = rc.prompt_manager.get_prompt("default", rc.prompt_group).format(
-        response_format=generate_json_template(ValuablePaperPageContent),
-    )
-    llm = rc.default_model
-
-    async def process_one_paper(paper_text: str):
-        agent = create_agent(
-            model=llm,
-            system_prompt=prompt,   
-            tools=[download_file_from_url],
-            response_format=ToolStrategy(ValuablePaperPageContent)  
-        )
-        messages = [HumanMessage(content=paper_text)]
-
-        try:
-            response = await agent.with_retry().ainvoke(input={"messages": messages})
-            structured = response.get("structured_response")
-            if not structured:
-                logging.warning(f"LLM generate best paper response is empty")
-                return None
-
-            return ValuablePaperPage(content=structured)
-        except Exception as e:
-            logging.error(f"[generate_best_papers_page] Error processing paper: {e}")
-            return None
-
-    tasks = [process_one_paper(bp) for bp in best_papers]
-    results: List[ValuablePaperPage] = await asyncio.gather(*tasks, return_exceptions=False)
-    results = [r for r in results if r is not None]
+    tasks = [
+        _generate_call_with_retry("default", ValuablePaperPageContent, f"best paper {index}", rc, bp)
+        for index, bp in enumerate(best_papers, 1) if bp
+    ]
+    results: List[ValuablePaperPageContent] = await asyncio.gather(*tasks, return_exceptions=False)
     return dict(
-        best_papers_json=results
-    )
-
-
-async def generate_summary_page(state: PPTState, config: RunnableConfig):
-    md_content = state["sections"].get(ConferenceFileNames.SUMMARY_MD, "")
-    if not md_content:
-        logging.warning(f"Summary page is empty")
-        return
-    rc = parse_research_config(config)
-    prompt = rc.prompt_manager.get_prompt("default", rc.prompt_group).format(
-        response_format=generate_json_template(ConfSummaryPageContent),
-    )
-    llm = rc.default_model
-    agent = create_agent(
-        model=llm,
-        system_prompt=prompt,   
-        tools=[download_file_from_url],
-        response_format=ToolStrategy(ConfSummaryPageContent)
-    )
-    response = await agent.with_retry().ainvoke(
-        input=dict(
-            messages=[HumanMessage(content=state["sections"].get(ConferenceFileNames.SUMMARY_MD, ""))]
-        )
-    )
-    structured_response = response.get("structured_response")
-    if not structured_response:
-        logging.warning(f"LLM generate Summary response is empty")
-        return
-    return dict(
-        summary_json=ConfSummaryPage(
-            content=structured_response
-        )
+        best_papers_json=[ValuablePaperPage(content=r) for r in results if r is not None]
     )
 
 
@@ -1196,12 +1066,33 @@ builder = StateGraph(PPTState)
 
 builder.add_node(PPTGraphNodeType.CHECK_EXISTING_PPT, check_existing_ppt)
 builder.add_node(PPTGraphNodeType.LOAD_CONFERENCE_SECTIONS, load_conference_sections)
-builder.add_node(PPTGraphNodeType.GENERATE_OVERVIEW_PAGE, generate_overview_page)
+builder.add_node(
+    PPTGraphNodeType.GENERATE_OVERVIEW_PAGE,
+    make_generate_page(
+        ConfOverviewPageContent, ConfOverviewPage,
+        md_filename=ConferenceFileNames.OVERVIEW_MD,
+        return_key="overview_json"
+    )
+)
 builder.add_node(PPTGraphNodeType.GENERATE_KEYNOTES_PAGE, generate_keynotes_page)
-builder.add_node(PPTGraphNodeType.GENERATE_TOPIC_CONTENT_PAGE, generate_topic_content_page)
+builder.add_node(
+    PPTGraphNodeType.GENERATE_TOPIC_CONTENT_PAGE,
+    make_generate_page(
+        TopicContentPageContent, TopicContentPage,
+        md_filename=ConferenceFileNames.TOPIC_MD,
+        return_key="topic_content_json"
+    )
+)
 builder.add_node(PPTGraphNodeType.GENERATE_TOPIC_DETAILS_PAGE, generate_topic_details_page)
 builder.add_node(PPTGraphNodeType.GENERATE_BEST_PAPERS_PAGE, generate_best_papers_page)
-builder.add_node(PPTGraphNodeType.GENERATE_SUMMARY_PAGE, generate_summary_page)
+builder.add_node(
+    PPTGraphNodeType.GENERATE_SUMMARY_PAGE,
+    make_generate_page(
+        ConfSummaryPageContent, ConfSummaryPage,
+        md_filename=ConferenceFileNames.SUMMARY_MD,
+        return_key="summary_json"
+    )
+)
 builder.add_node(PPTGraphNodeType.ASSEMBLE_PPT_JSON, assemble_ppt_json)
 builder.add_node(PPTGraphNodeType.SAVE_PPT_JSON, save_ppt_json)
 builder.add_node(
