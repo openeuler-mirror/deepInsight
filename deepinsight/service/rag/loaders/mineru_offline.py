@@ -110,7 +110,7 @@ class MinerUOfflineClient(BaseLoader):
             return False
 
     @staticmethod
-    def _api_load_response_get_errmsg(response_json: Any) -> str:
+    def _api_load_response_get_errmsg(response_json: dict[str, Any]) -> str:
         content = response_json.get("content", {})
         if isinstance(content, dict):
             error = content.get("error")
@@ -162,6 +162,10 @@ class MinerUOfflineClient(BaseLoader):
                 logging.error(f"Expect MinerU returns a JSON dict when status={response.status} in zip response"
                               f" mode, got: {raw_content}", exc_info=True)
                 raise MineruUnexpectedReturn() from None
+            if not isinstance(err_status, dict):
+                logging.error(f"Expect MinerU returns a JSON dict when status={response.status} in zip response mode,"
+                              f" got: {err_status!r}")
+                raise MineruUnexpectedReturn()
             err_msg = cls._api_load_response_get_errmsg(err_status)
             files = list(map_to_real_name.values())
             logging.error(f"Parse these document by MinerU offline service failed with {err_msg}: {files}")
