@@ -624,23 +624,9 @@ institution_overview_prompt = r"""
        # 执行 SQLAlchemy 查询
 ````
 
-3. **数据库模型结构（简要）**：
+3. 数据库模型说明：
 
-   **Author 表**
-
-   * author_id, author_name, email, affiliation, affiliation_country, affiliation_city
-
-   **Conference 表**
-
-   * conference_id, full_name, short_name, year, location, start_date, end_date, topics
-
-   **Paper 表**
-
-   * paper_id, title, conference_id, publication_year, abstract, keywords, author_ids, reference_ids, topic
-
-   **PaperAuthorRelation 表**
-
-   * relation_id, paper_id, author_id, author_order, is_corresponding
+{{db_models_description}}
 
 ---
 
@@ -1635,23 +1621,9 @@ tech_topics_prompt = r"""
        # 执行 SQLAlchemy 查询
 ````
 
-3. **数据库模型结构（简要）**：
+3. 数据库模型说明：
 
-   **Author 表**
-
-   * author_id, author_name, email, affiliation, affiliation_country, affiliation_city
-
-   **Conference 表**
-
-   * conference_id, full_name, short_name, year, location, start_date, end_date, topics
-
-   **Paper 表**
-
-   * paper_id, title, conference_id, publication_year, abstract, keywords, author_ids, reference_ids, topic
-
-   **PaperAuthorRelation 表**
-
-   * relation_id, paper_id, author_id, author_order, is_corresponding
+{{db_models_description}}
 
 ---
 

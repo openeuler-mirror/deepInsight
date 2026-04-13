@@ -262,11 +262,13 @@ async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
     summary_prompt = rc.prompt_manager.get_prompt(
         name=ConferenceGraphNodeType.INSIGHT_SUMMARY,
         group=rc.prompt_group,
-    ).format()
-    output_file = f"/{ConferenceFileNames.SUMMARY_MD}"
+    ).format(output_file=f"/{ConferenceFileNames.SUMMARY_MD}")
     logging.debug(
         f"conference_best_papers_summary:{state.get('conference_best_papers_summary', '')}, conference_topic:{state.get('conference_topic', '')}")
-    user_prompt = f"学术会议价值论文列表：{state.get('conference_best_papers_summary', '')},会议主题相关信息：{state.get('conference_topic', '')},保存到路径：{output_file} "
+    user_prompt = (f"学术会议价值论文列表：\n\n"
+                   f"{state.get('conference_best_papers_summary', '')}\n\n"
+                   f"会议主题相关信息：\n\n"
+                   f"{state.get('conference_topic', '')}")
     tool_instance = tavily_key_manager().tool(
         max_results=2,
         topic="general",
@@ -287,18 +289,31 @@ async def insight_summary_node(state: ConferenceState, config: RunnableConfig):
         backend=rc.file_system.deep_agent_backend()
     )
 
-    try:
-        agent.invoke({"messages": [
-            {
-                "role": "user",
-                "content": user_prompt
-            }]}, config=config)
-    except Exception as e:
-        logging.error(f"An error occurred:{e}")
-        import traceback
-        traceback.print_exc()  # 打印堆栈信息
+    max_retry = 3
+    state["conference_summary"] = ""  # fill empty result first
+    for not_last_retry in range(max_retry - 1, -1, -1):  # not_last_retry == 0 means this loop is the last retry
+        try:
+            await agent.ainvoke({"messages": [  # type: ignore
+                {
+                    "role": "user",
+                    "content": user_prompt
+                }]}, config=config)
+        except Exception as e:
+            logging.error(f"{type(e).__name__} occurred when generating conference summary: {e}", exc_info=True)
 
-    state['conference_summary'] = rc.file_system.read(ConferenceFileNames.SUMMARY_MD)
+        has_output_file = rc.file_system.is_file(ConferenceFileNames.SUMMARY_MD)
+        if has_output_file:
+            state["conference_summary"] = rc.file_system.read(ConferenceFileNames.SUMMARY_MD)
+        if state["conference_summary"]:
+            break
+        if not_last_retry:
+            if has_output_file:
+                logging.warning("Conference summary failed with an empty result. Will retry later.")
+            else:
+                logging.warning("Conference summary ended without an output file. Will retry later.")
+        else:
+            logging.error(f"Conference summary failed for too many times (Retried for {max_retry} count). "
+                          f"Continue without summary.")
 
     full_text = (
             state.get('conference_overview', '') + '\n\n\n' +

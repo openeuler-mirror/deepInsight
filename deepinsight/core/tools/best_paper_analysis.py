@@ -30,7 +30,6 @@ async def analyze_single_paper(paper_info: str, output_dir: str, config: Runnabl
     """
     try:
         rc = parse_research_config(config)
-        tools = rc.file_system.tools()
 
         tavily_instance = tavily_key_manager().tool(
             max_results=2,
@@ -46,8 +45,7 @@ async def analyze_single_paper(paper_info: str, output_dir: str, config: Runnabl
                 group=rc.prompt_group,
         ).format(output_dir=output_dir, db_models_description=get_db_models_source_markdown())
 
-
-        tools.append(tavily_instance)
+        tools = [tavily_instance]
         
         # Add all configured retrieval tools
         if rc.retrieval_config:
