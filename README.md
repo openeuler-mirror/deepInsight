@@ -33,19 +33,7 @@ DeepInsight 聚焦技术调研中从**找到相关研究**走到**判断技术�
 
 用户提供一篇论文或一个技术研究方向，通过「发现 → 确认 → 治理 → 对话 → 持续补充」推进研究。
 
-```mermaid
-flowchart TD
-    Input["输入一篇论文或一个研究方向"] --> Discover["Agent 发现论文"]
-    Discover --> Candidates["候选论文、初步关系与推荐依据"]
-    Candidates --> Confirm{"用户审核与确认"}
-    Confirm -->|调整研究范围| Discover
-    Confirm -->|确认论文集合| Prepare["批量获取、解析与结构化预处理"]
-    Prepare --> Build["论文画像、知识关联与证据核验"]
-    Build --> Index["构建或增量更新专题知识库"]
-    Index --> Research["Agent 对话研究与创新分析"]
-    Research -->|发现知识缺口| Discover
-    Research --> Output["整理带证据的研究结论和报告"]
-```
+![DeepInsight 用户使用流程：用户输入、Agent 发现、用户确认、知识治理、对话研究和成果沉淀，缺失论文可增量补充](docs/images/DeepInsight_Workflow.png)
 
 ### 3.1 论文发现
 
